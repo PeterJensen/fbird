@@ -5,9 +5,9 @@
   var config = {
     canvasWidth:  600,
     canvasHeight: 400,
-    birdWidth:     10,
-    birdHeight:    10,
-    maxBirds:  10000
+    birdWidth:    10,
+    birdHeight:   10,
+    maxBirds:     1000000
   };
 
   // module globals
@@ -150,7 +150,7 @@
   }
 
   function main() {
-    var updates = 10000;
+    var updates = 100;
     logger.trace("main");
     addAllBirds();
     var start = Date.now();
@@ -158,7 +158,7 @@
       birds.updateAll(0.0166);
     }
     var stop = Date.now();
-    logger.trace("Time: " + (stop - start));
+    logger.trace("Time per update: " + (stop - start)/updates + "ms");
     for (var i = 0; i < 4; ++i) {
       birds.dumpOne(i);
     }
@@ -170,7 +170,7 @@
         birds.updateAllSimd(0.0166);
       }
       var stop = Date.now();
-      logger.trace("Time: " + (stop - start));
+      logger.trace("Time per update: " + (stop - start)/updates + "ms");
       for (var i = 0; i < 4; ++i) {
         birds.dumpOne(i);
       }
