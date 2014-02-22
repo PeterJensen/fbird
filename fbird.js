@@ -3,7 +3,7 @@
 
   // configuration
   var config = {
-    canvasWidth:  600,
+    canvasWidth:  1000,
     canvasHeight: 400,
     birdWidth:    10,
     birdHeight:   10,
@@ -11,9 +11,7 @@
   };
 
   // module globals
-  var ctx = $("#canvas")[0].getContext("2d");
-  var bird;
-  var blank;
+
   var logger = {
     traceEnabled: true,
     trace: function (msg) {
@@ -25,32 +23,6 @@
     traceEnable: function () {
       this.traceEnabled = true;
     }
-  }
-
-  function createBird() {
-    bird  = ctx.createImageData(config.birdWidth, config.birdHeight);
-    blank = ctx.createImageData(config.birdWidth, config.birdHeight);
-    var birdData = bird.data;
-    var blankData = blank.data;
-    var len  = config.birdWidth*config.birdHeight*4;
-    for (var i = 0; i < len; i+=4) {
-      birdData[i] = 0;
-      birdData[i+1] = 0;
-      birdData[i+2] = 0;
-      birdData[i+3] = 255;
-      blankData[i] = 255;
-      blankData[i+1] = 255;
-      blankData[i+2] = 255;
-      blankData[i+3] = 255;
-    }
-  }
-
-  function placeBird(x, y) {
-    ctx.putImageData(bird, x, y);
-  }
-
-  function removeBird(x, y) {
-    ctx.putImageData(blank, x, y);
   }
 
   // Keep track of all the birds
@@ -149,22 +121,136 @@
     }
 
     return {
-      clearAll: clearAll,
-      addBird: addBird,
-      updateAll: updateAll,
+      clearAll:      clearAll,
+      addBird:       addBird,
+      updateAll:     updateAll,
       updateAllSimd: updateAllSimd,
-      dumpOne: dumpOne
+      dumpOne:       dumpOne
     };
 
   }();
 
+  
+  var canvas = function() {
+  
+    var ctx;
+    
+    var sprites         = [];
+    var spritePositions = [];
+
+    function init(canvasElem) {
+      $(canvasElem).attr("width", config.canvasWidth);
+      $(canvasElem).attr("height", config.canvasHeight);
+      ctx = canvasElem.getContext("2d");
+    }
+    
+    function createSprite(width, height, rgbaData) {
+      var sprite      = ctx.createImageData(width, height);
+      var blankSprite = ctx.createImageData(width, height);
+      var spriteData = sprite.data;
+      var blankSpriteData = blankSprite.data;
+      
+      var len  = width*height*4;
+      for (var i = 0; i < len; i+=4) {
+        spriteData[i]   = rgbaData[i];
+        spriteData[i+1] = rgbaData[i+1];
+        spriteData[i+2] = rgbaData[i+2];
+        spriteData[i+3] = rgbaData[i+3];
+        blankSpriteData[i] = 255;
+        blankSpriteData[i+1] = 255;
+        blankSpriteData[i+2] = 255;
+        blankSpriteData[i+3] = 255;
+      }
+      sprites.push({sprite: sprite, blankSprite: blankSprite});
+      return sprites.length - 1;
+    }
+  
+    function placeSprite(spriteId, x, y) {
+      spritePositions.push({spriteId: spriteId, x: x, y: y});
+      ctx.putImageData(sprites[spriteId].sprite, x, y);
+      return spritePositions.length - 1;
+    }
+
+    function moveSprite(posId, x, y) {
+      var spritePos = spritePositions[posId]; 
+      var sprite    = sprites[spritePos.spriteId];
+      ctx.putImageData(sprite.blankSprite, spritePos.x, spritePos.y);
+      spritePos.x = x;
+      spritePos.y = y;
+      ctx.putImageData(sprite.sprite, x, y);
+    }
+    
+    function posOf(posId) {
+      return spritePositions[posId];
+    }
+    
+    return {
+      init:          init,
+      createSprite:  createSprite,
+      placeSprite:   placeSprite,
+      moveSprite:    moveSprite,
+      posOf:         posOf
+    };
+      
+  }();
+  
   function addAllBirds() {
     for (var i = 0; i < config.maxBirds; ++i) {
       birds.addBird(0.0, 0.0);
     }
   }
 
+  function animateBirds() {
+    var posIds = [];
+
+    function randomY() {
+      return Math.floor(Math.random()*config.canvasHeight);
+    }
+
+    function randomX() {
+      return Math.floor(Math.random()*config.canvasWidth);
+    }
+    
+    function createSprites(spriteId, count) {
+      for (var i = 0; i < count; ++i) {
+        posIds[i] = canvas.placeSprite(spriteId, randomX(), randomY());
+      }
+    }
+      
+    function moveAllDown() {
+      var allGone = true;
+      for (var i = 0; i < posIds.length; ++i) {
+        var pos = canvas.posOf(posIds[i]);
+        if (pos.y < config.canvasHeight) {
+          canvas.moveSprite(posIds[i], pos.x, pos.y+1);
+          allGone = false;
+        }
+      }
+      if (!allGone) {
+        requestAnimationFrame(moveAllDown);
+      }
+    }
+
+    function blackDotSprite(width, height) {
+      var rgbaValues = new Uint8ClampedArray(width*height*4);
+      for (var i = 0, n = width*height*4; i < n; i += 4) {
+        rgbaValues[i] = 0;
+        rgbaValues[i+1] = 0;
+        rgbaValues[i+2] = 0;
+        rgbaValues[i+3] = 255;
+      }
+      return canvas.createSprite(width, height, rgbaValues);
+    }
+    
+    canvas.init($("#canvas")[0]);
+    var spriteId = blackDotSprite(5,10);
+    createSprites(spriteId, 1000);
+    moveAllDown();
+  }
+  
   function main() {
+    animateBirds();
+    return;
     var updates = 10;
     logger.trace("main");
     addAllBirds();
