@@ -62,7 +62,7 @@
     var velArray  = new Float32Array(config.maxBirds);
 
     var accelData = {
-      interval:  0.01,  // time in millis seconds for each accel value
+      interval:  0.1,  // time in millis seconds for each accel value
       values:   [10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
     }
     
@@ -83,37 +83,32 @@
     }
 
     function updateAll(timeDelta) {
-      var steps = Math.ceil(1000.0*timeDelta/accelData.interval);
-      var accelCount = accelData.values.length;
-      var accelIndex = 0;
-      var subTimeDelta = timeDelta/steps;
+      var steps               = Math.ceil(1000.0*timeDelta/accelData.interval);
+      var accelCount          = accelData.values.length;
+      var subTimeDelta        = timeDelta/steps;
       var subTimeDeltaSquared = subTimeDelta*subTimeDelta;
-      for (var a = 0; a < steps; ++a) {
-        var accel = accelData.values[accelIndex];
-        accelIndex = (accelIndex + 1) % accelCount;
-        for (var i = 0; i < actualBirds; ++i) {
-          var pos,
-              vel,
-              newPos,
-              newVel;
-          pos = posArray[i];
-          vel = velArray[i];
-          newPos = accel*subTimeDeltaSquared + vel*subTimeDelta + pos;
-          newVel = accel*subTimeDelta + vel;
+      for (var i = 0; i < actualBirds; ++i) {
+        var accelIndex          = 0;
+        var newPos = posArray[i];
+        var newVel = velArray[i];
+        for (var a = 0; a < steps; ++a) {
+          var accel = accelData.values[accelIndex];
+          accelIndex = (accelIndex + 1) % accelCount;
+          var posDelta = accel*subTimeDeltaSquared + newVel*subTimeDelta;
+          newPos = newPos + posDelta;
+          newVel = accel*subTimeDelta + newVel;
           if (newPos > maxPos) {
-            newPos = pos;
-            newVel = -vel;
+            newVel = -newVel;
           }
-          posArray[i] = newPos;
-          velArray[i] = newVel;
         }
+        posArray[i] = newPos;
+        velArray[i] = newVel;
       }
     }    
 
     function updateAllSimd(timeDelta) {
       var steps = Math.ceil(1000.0*timeDelta/accelData.interval);
       var accelCount = accelData.values.length;
-      var accelIndex = 0;
       var subTimeDelta = timeDelta/steps;
 
       var posArrayx4         = new Float32x4Array(posArray.buffer);
@@ -122,27 +117,26 @@
       var subTimeDeltax4        = SIMD.float32x4.splat(subTimeDelta);
       var subTimeDeltaSquaredx4 = SIMD.float32x4.mul(subTimeDeltax4, subTimeDeltax4);
 
-      for (var a = 0; a < steps; ++a) {
-        var accel              = accelData.values[accelIndex];
-        var accelx4            = SIMD.float32x4.splat(accel);
-        accelIndex             = (accelIndex + 1) % accelCount;
-        for (var i = 0, len = (actualBirds+3)>>2; i < len; ++i) {
-          var posx4,
-              velx4,
-              newPosx4,
-              newVelx4;
-          posx4 = posArrayx4.getAt(i);
-          velx4 = velArrayx4.getAt(i);
-          newPosx4 = SIMD.float32x4.add(posx4, SIMD.float32x4.mul(accelx4, subTimeDeltaSquaredx4));
-          newPosx4 = SIMD.float32x4.add(newPosx4, SIMD.float32x4.mul(velx4, subTimeDeltax4));
-          newVelx4 = SIMD.float32x4.add(velx4, SIMD.float32x4.mul(accelx4, subTimeDeltax4));
+      for (var i = 0, len = (actualBirds+3)>>2; i < len; ++i) {
+        var accelIndex = 0;
+        var newVelTruex4;
+        var newPosx4 = posArrayx4.getAt(i);
+        var newVelx4 = velArrayx4.getAt(i);
+        for (var a = 0; a < steps; ++a) {
+          var accel              = accelData.values[accelIndex];
+          var accelx4            = SIMD.float32x4.splat(accel);
+          accelIndex             = (accelIndex + 1) % accelCount;
+          var posDeltax4;
+          posDeltax4 = SIMD.float32x4.mul(accelx4, subTimeDeltaSquaredx4);
+          posDeltax4 = SIMD.float32x4.add(posDeltax4, SIMD.float32x4.mul(newVelx4,subTimeDeltax4));
+          newPosx4   = SIMD.float32x4.add(newPosx4, posDeltax4);
+          newVelx4 = SIMD.float32x4.add(newVelx4, SIMD.float32x4.mul(accelx4, subTimeDeltax4));
           var cmpx4 = SIMD.float32x4.greaterThan(newPosx4, maxPosx4);
           newVelTruex4 = SIMD.float32x4.neg(newVelx4);
-          newPosx4 = SIMD.int32x4.select(cmpx4, posx4, newPosx4);
           newVelx4 = SIMD.int32x4.select(cmpx4, newVelTruex4, newVelx4);
-          posArrayx4.setAt(i, newPosx4);
-          velArrayx4.setAt(i, newVelx4);
         }
+        posArrayx4.setAt(i, newPosx4);
+        velArrayx4.setAt(i, newVelx4);
       }
     }    
 
@@ -181,7 +175,7 @@
     var stop = Date.now();
     logger.trace("Time per update: " + (stop - start)/updates + "ms");
     for (var i = 0; i < 4; ++i) {
-      birds.dumpOne(i);
+      birds.dumpOne(i+4);
     }
     if (typeof SIMD !== "undefined") {
       birds.clearAll();
@@ -193,7 +187,7 @@
       var stop = Date.now();
       logger.trace("Time per update: " + (stop - start)/updates + "ms");
       for (var i = 0; i < 4; ++i) {
-        birds.dumpOne(i);
+        birds.dumpOne(i+4);
       }
     }
 /*
