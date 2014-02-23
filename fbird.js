@@ -264,7 +264,18 @@
           removeBirds(1);
         }
         else if (fps > targetFpsMax) {
-          addBirds(birdSprite, 1);
+          var fpsDelta = fps - targetFps;
+          var newBirdCount;
+          if (fpsDelta > 10.0) {
+            newBirdCount = 10;
+          }
+          else if (fps > 5.0) {
+            newBirdCount = 5;
+          }
+          else {
+            newBirdCount = 1;
+          }
+          addBirds(birdSprite, newBirdCount);
         }
         $fps.text(fps.toFixed(2));
         $birds.text(birds.length);
