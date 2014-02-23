@@ -203,14 +203,20 @@
   }();
   
   function animateBirds() {
+  
+    var targetFps         = 30.0;
+    var targetFpsMin      = 32.0;
+    var targetFpsMax      = 28.0;
+    var frameAverageCount = 10;
+    
     var birdSprite;
-    var birds    = [];
-    var animate  = true;
-    var lastTime = Date.now();
-    var $fps     = $("#fps");
-    var $birds   = $("#birds");
-    var misses   = 0;
-    var hits     = 0;
+    var birds        = [];
+    var animate      = true;
+    var lastTime     = Date.now();
+    var $fps         = $("#fps");
+    var $birds       = $("#birds");
+    var frameCount   = 0;
+    var startTime;
 
     function randomY() {
       return Math.floor(Math.random()*config.canvasHeight);
@@ -243,28 +249,27 @@
       }
     }
       
-    function moveAll() {
-      var time  = Date.now();
-      var delta = time - lastTime;
-      if (delta > 20.0) {
-        misses++;
+    function moveAll(time) {
+      if (frameCount === 0) {
+        startTime = time;
+        frameCount++;
       }
-      else {
-        hits++;
-      }
-      if (misses > 10) {
-        if (misses > hits) {
+      else if (frameCount === frameAverageCount) {
+        var delta = time - startTime;
+        var fps   = frameCount*1000.0/delta;
+        if (fps < targetFpsMin) {
           removeBirds(1);
         }
-        else {
+        else if (fps > targetFpsMax) {
           addBirds(birdSprite, 1);
         }
-        misses = 0;
-        hits = 0
+        $fps.text(fps.toFixed(2));
+        $birds.text(birds.length);
+        frameCount = 0;
       }
-      $fps.text((1000.0/delta).toFixed(2));
-      $birds.text(birds.length);
-      lastTime = time;
+      else {
+        frameCount++;
+      }
       
       for (var i = 0; i < birds.length; ++i) {
         var bird = birds[i];
