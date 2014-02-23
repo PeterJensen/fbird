@@ -179,29 +179,38 @@
       spritePos.y = y;
       ctx.putImageData(sprite.sprite, x, y);
     }
+
+    function removeLastSprite() {
+      var spritePos = spritePositions[spritePositions.length-1];
+      var sprite    = sprites[spritePos.spriteId];
+      ctx.putImageData(sprite.blankSprite, spritePos.x, spritePos.y);
+      spritePositions.pop();
+    }
     
     function posOf(posId) {
       return spritePositions[posId];
     }
     
     return {
-      init:          init,
-      createSprite:  createSprite,
-      placeSprite:   placeSprite,
-      moveSprite:    moveSprite,
-      posOf:         posOf
+      init:             init,
+      createSprite:     createSprite,
+      placeSprite:      placeSprite,
+      moveSprite:       moveSprite,
+      removeLastSprite: removeLastSprite,
+      posOf:            posOf
     };
       
   }();
   
-  function addAllBirds() {
-    for (var i = 0; i < config.maxBirds; ++i) {
-      birds.addBird(0.0, 0.0);
-    }
-  }
-
   function animateBirds() {
-    var posIds = [];
+    var birdSprite;
+    var birds    = [];
+    var animate  = true;
+    var lastTime = Date.now();
+    var $fps     = $("#fps");
+    var $birds   = $("#birds");
+    var misses   = 0;
+    var hits     = 0;
 
     function randomY() {
       return Math.floor(Math.random()*config.canvasHeight);
@@ -211,23 +220,68 @@
       return Math.floor(Math.random()*config.canvasWidth);
     }
     
-    function createSprites(spriteId, count) {
+    function addBird(birdSprite) {
+      birds.push({id: canvas.placeSprite(birdSprite, randomX(), randomY()), vel: 1});
+    }
+    
+    function removeLastBird() {
+      if (birds.length > 0) {
+        canvas.removeLastSprite();
+      }
+      birds.pop();
+    }
+    
+    function addBirds(bird, count) {
       for (var i = 0; i < count; ++i) {
-        posIds[i] = canvas.placeSprite(spriteId, randomX(), randomY());
+        addBird(bird);
+      }
+    }
+
+    function removeBirds(count) {
+      for (var i = 0; i < count; ++i) {
+        removeLastBird();
       }
     }
       
-    function moveAllDown() {
-      var allGone = true;
-      for (var i = 0; i < posIds.length; ++i) {
-        var pos = canvas.posOf(posIds[i]);
-        if (pos.y < config.canvasHeight) {
-          canvas.moveSprite(posIds[i], pos.x, pos.y+1);
-          allGone = false;
+    function moveAll() {
+      var time  = Date.now();
+      var delta = time - lastTime;
+      if (delta > 20.0) {
+        misses++;
+      }
+      else {
+        hits++;
+      }
+      if (misses > 10) {
+        if (misses > hits) {
+          removeBirds(1);
+        }
+        else {
+          addBirds(birdSprite, 1);
+        }
+        misses = 0;
+        hits = 0
+      }
+      $fps.text((1000.0/delta).toFixed(2));
+      $birds.text(birds.length);
+      lastTime = time;
+      
+      for (var i = 0; i < birds.length; ++i) {
+        var bird = birds[i];
+        var pos = canvas.posOf(bird.id);
+        var vel = bird.vel;
+        if (vel > 0 && pos.y < config.canvasHeight) {
+          canvas.moveSprite(bird.id, pos.x, pos.y+vel);
+        }
+        else if (vel < 0 && pos.y > 0) {
+          canvas.moveSprite(bird.id, pos.x, pos.y+vel);
+        }
+        else {
+          bird.vel = -bird.vel;
         }
       }
-      if (!allGone) {
-        requestAnimationFrame(moveAllDown);
+      if (animate) {
+        requestAnimationFrame(moveAll);
       }
     }
 
@@ -241,11 +295,25 @@
       }
       return canvas.createSprite(width, height, rgbaValues);
     }
+
+    function startStopClick() {
+      var button = $("#startStop");
+      if (animate) {
+        button.val("Start");
+        animate = false;
+      }
+      else {
+        button.val("Stop");
+        animate = true;
+        moveAll();
+      }
+    }
     
     canvas.init($("#canvas")[0]);
-    var spriteId = blackDotSprite(5,10);
-    createSprites(spriteId, 1000);
-    moveAllDown();
+    birdSprite = blackDotSprite(5, 5);
+    addBirds(birdSprite, 100);
+    $("#startStop").click(startStopClick);    
+    moveAll();
   }
   
   function main() {
