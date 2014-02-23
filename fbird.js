@@ -250,6 +250,10 @@
     }
       
     function moveAll(time) {
+      time = Date.now();
+      if (animate) {
+        setTimeout(moveAll, 1);
+      }
       if (frameCount === 0) {
         startTime = time;
         frameCount++;
@@ -285,9 +289,9 @@
           bird.vel = -bird.vel;
         }
       }
-      if (animate) {
-        requestAnimationFrame(moveAll);
-      }
+//      if (animate) {
+//        requestAnimationFrame(moveAll);
+//      }
     }
 
     function blackDotSprite(width, height) {
