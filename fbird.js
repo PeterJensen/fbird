@@ -3,11 +3,11 @@
 
   // configuration
   var config = {
-    canvasWidth:  1000,
-    canvasHeight: 400,
-    birdWidth:    10,
-    birdHeight:   10,
-    maxBirds:     100000
+    surfaceWidth:  1000,
+    surfaceHeight: 400,
+    birdWidth:     10,
+    birdHeight:    10,
+    maxBirds:      100000
   };
 
   // module globals
@@ -131,20 +131,31 @@
   }();
 
   
-  var canvas = function() {
+  var surface = function() {
   
+    var useCanvas = false;
     var ctx;
+    var domNode;
     
     var sprites         = [];
     var spritePositions = [];
 
-    function init(canvasElem) {
-      $(canvasElem).attr("width", config.canvasWidth);
-      $(canvasElem).attr("height", config.canvasHeight);
-      ctx = canvasElem.getContext("2d");
+    function init(domElem) {
+      if ($(domElem).prop("tagName") === "CANVAS") {
+        useCanvas = true;
+        ctx = domElem.getContext("2d");
+        $(domElem).attr("width", config.surfaceWidth);
+        $(domElem).attr("height", config.surfaceHeight);
+      }
+      else {
+        domNode = domElem;
+        $(domNode).css("width", config.surfaceWidth);
+        $(domNode).css("height", config.surfaceHeight);
+        $(domNode).css("position", "absolute");
+      }
     }
     
-    function createSprite(width, height, rgbaData) {
+    function createCanvasSprite(width, height, rgbaData) {
       var sprite      = ctx.createImageData(width, height);
       var blankSprite = ctx.createImageData(width, height);
       var spriteData = sprite.data;
@@ -165,13 +176,61 @@
       return sprites.length - 1;
     }
   
-    function placeSprite(spriteId, x, y) {
+    function createDomSprite(width, height, rgbaData) {
+      var $canvas = $("<canvas>");
+      $canvas.attr("width", width);
+      $canvas.attr("height", height);
+      var canvasCtx = $canvas[0].getContext("2d");
+      var canvasSprite = canvasCtx.createImageData(width, height);
+      var canvasSpriteData = canvasSprite.data;
+      for (var i = 0, n = width*height*4; i < n; i += 4) {
+        canvasSpriteData[i] = rgbaData[i];
+        canvasSpriteData[i+1] = rgbaData[i+1];
+        canvasSpriteData[i+2] = rgbaData[i+2];
+        canvasSpriteData[i+3] = rgbaData[i+3];
+      }
+      canvasCtx.putImageData(canvasSprite, 0, 0);
+      var $img = $("<img>").attr("src", $canvas[0].toDataURL("image/png"));
+      $img.css("position", "absolute");
+      sprites.push({img: $img});
+      return sprites.length - 1;
+    }
+    
+    function createSprite(width, height, rgbaData) {
+      if (useCanvas) {
+        return createCanvasSprite(width, height, rgbaData);
+      }
+      else {
+        return createDomSprite(width, height, rgbaData);
+      }
+    }
+    
+    function placeCanvasSprite(spriteId, x, y) {
       spritePositions.push({spriteId: spriteId, x: x, y: y});
       ctx.putImageData(sprites[spriteId].sprite, x, y);
       return spritePositions.length - 1;
     }
+    
+    function placeDomSprite(spriteId, x, y) {
+      var $img = sprites[spriteId].img;
+      var $imgClone = $img.clone();
+      domNode.appendChild($imgClone[0]);
+      $imgClone.css("left", x);
+      $imgClone.css("top", y);
+      spritePositions.push({img: $imgClone, x: x, y: y});
+      return spritePositions.length - 1;
+    }
 
-    function moveSprite(posId, x, y) {
+    function placeSprite(spriteId, x, y) {
+      if (useCanvas) {
+        return placeCanvasSprite(spriteId, x, y);
+      }
+      else {
+        return placeDomSprite(spriteId, x, y);
+      }
+    }
+
+    function moveCanvasSprite(posId, x, y) {
       var spritePos = spritePositions[posId]; 
       var sprite    = sprites[spritePos.spriteId];
       ctx.putImageData(sprite.blankSprite, spritePos.x, spritePos.y);
@@ -180,11 +239,44 @@
       ctx.putImageData(sprite.sprite, x, y);
     }
 
-    function removeLastSprite() {
+    function moveDomSprite(posId, x, y) {
+      var spritePos = spritePositions[posId]; 
+      var $img = spritePos.img;
+      spritePos.x = x;
+      spritePos.y = y;
+      $img.css("left", x);
+      $img.css("top", y);
+    }
+    
+    function moveSprite(posId, x, y) {
+      if (useCanvas) {
+        moveCanvasSprite(posId, x, y);
+      }
+      else {
+        moveDomSprite(posId, x, y);
+      }
+    }
+
+    function removeLastCanvasSprite() {
       var spritePos = spritePositions[spritePositions.length-1];
       var sprite    = sprites[spritePos.spriteId];
       ctx.putImageData(sprite.blankSprite, spritePos.x, spritePos.y);
       spritePositions.pop();
+    }
+
+    function removeLastDomSprite() {
+      var spritePos = spritePositions[spritePositions.length-1];
+      spritePos.img.remove();
+      spritePositions.pop();
+    }
+    
+    function removeLastSprite() {
+      if (useCanvas) {
+        removeLastCanvasSprite();
+      }
+      else {
+        removeLastDomSprite();
+      }
     }
     
     function posOf(posId) {
@@ -219,20 +311,20 @@
     var startTime;
 
     function randomY() {
-      return Math.floor(Math.random()*config.canvasHeight);
+      return Math.floor(Math.random()*config.surfaceHeight);
     }
 
     function randomX() {
-      return Math.floor(Math.random()*config.canvasWidth);
+      return Math.floor(Math.random()*config.surfaceWidth);
     }
     
     function addBird(birdSprite) {
-      birds.push({id: canvas.placeSprite(birdSprite, randomX(), randomY()), vel: 1});
+      birds.push({id: surface.placeSprite(birdSprite, randomX(), randomY()), vel: 1});
     }
     
     function removeLastBird() {
       if (birds.length > 0) {
-        canvas.removeLastSprite();
+        surface.removeLastSprite();
       }
       birds.pop();
     }
@@ -287,13 +379,13 @@
       
       for (var i = 0; i < birds.length; ++i) {
         var bird = birds[i];
-        var pos = canvas.posOf(bird.id);
+        var pos = surface.posOf(bird.id);
         var vel = bird.vel;
-        if (vel > 0 && pos.y < config.canvasHeight) {
-          canvas.moveSprite(bird.id, pos.x, pos.y+vel);
+        if (vel > 0 && pos.y < config.surfaceHeight) {
+          surface.moveSprite(bird.id, pos.x, pos.y+vel);
         }
         else if (vel < 0 && pos.y > 0) {
-          canvas.moveSprite(bird.id, pos.x, pos.y+vel);
+          surface.moveSprite(bird.id, pos.x, pos.y+vel);
         }
         else {
           bird.vel = -bird.vel;
@@ -309,7 +401,7 @@
         rgbaValues[i+2] = 0;
         rgbaValues[i+3] = 255;
       }
-      return canvas.createSprite(width, height, rgbaValues);
+      return surface.createSprite(width, height, rgbaValues);
     }
 
     function startStopClick() {
@@ -324,9 +416,11 @@
         moveAll();
       }
     }
-    
-    canvas.init($("#canvas")[0]);
+
     birdSprite = blackDotSprite(5, 5);
+    $("#canvasSurface").hide();
+//    surface.init($("#canvasSurface")[0]);
+    surface.init($("#domSurface")[0]);
     addBirds(birdSprite, 100);
     $("#startStop").click(startStopClick);    
     moveAll();
