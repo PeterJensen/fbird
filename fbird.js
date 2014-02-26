@@ -10,54 +10,78 @@
     maxBirds:      100000
   };
 
-  // module globals
-
-  var logger = {
-    traceEnabled: true,
-    trace: function (msg) {
-      console.log(msg);
-    },
-    traceDisable: function () {
-      this.traceEnabled = false;
-    },
-    traceEnable: function () {
-      this.traceEnabled = true;
+  var logger = function () {
+    
+    var traceEnabled = true;
+    
+    function trace(msg) {
+      if (traceEnabled) {
+        console.log(msg);
+      }
     }
-  }
 
-  // Keep track of all the birds
+    function error(msg) {
+      console.log(msg);
+    }
+
+    function traceDisable() {
+      traceEnabled = false;
+    }
+
+    function traceEnable() {
+      traceEnabled = true;
+    }
+
+    return {
+      trace: trace,
+      error: error,
+      traceEnable: traceEnable,
+      traceDisable: traceDisable
+    }
+  }();
+
+  // Keep track of bird positions and velocities
 
   var birds = function () {
 
-    var maxPos    = 1000.0;
-    var posArray  = new Float32Array(config.maxBirds);
-    var velArray  = new Float32Array(config.maxBirds);
+    var maxPos      = 1000.0;
+    var actualBirds = 0;
+    var posArray    = new Float32Array(config.maxBirds);
+    var velArray    = new Float32Array(config.maxBirds);
 
     var accelData = {
-      interval:  0.1,  // time in millis seconds for each accel value
-      values:   [10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+      steps:     20000,
+      interval:  0.002,  // time in millis seconds for each accel value
+      values:   [10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0].map(function(v) { return 2*v; })
     }
-    
-    var actualBirds = 0;
 
-    function clearAll() {
+    function init(maxPosition) {
       actualBirds = 0;
+      maxPos      = maxPosition;
     }
         
     function addBird(pos, vel) {
       if (actualBirds >= config.maxBirds) {
-        logger.trace("maxBirds exceeded");
-        return;
+        logger.error("maxBirds exceeded");
+        return -1;
       }
       posArray[actualBirds] = pos;
       velArray[actualBirds] = vel;
       actualBirds++;
+      return actualBirds - 1;
+    }
+
+    function removeLastBird() {
+      if (actualBirds > 0) {
+        actualBirds--;
+      }
     }
 
     function updateAll(timeDelta) {
-      var steps               = Math.ceil(1000.0*timeDelta/accelData.interval);
+//      var steps               = Math.ceil(timeDelta/accelData.interval);
+      var steps               = accelData.steps;
       var accelCount          = accelData.values.length;
-      var subTimeDelta        = timeDelta/steps;
+      var subTimeDelta        = timeDelta/steps/1000.0;
       var subTimeDeltaSquared = subTimeDelta*subTimeDelta;
       for (var i = 0; i < actualBirds; ++i) {
         var accelIndex          = 0;
@@ -66,7 +90,7 @@
         for (var a = 0; a < steps; ++a) {
           var accel = accelData.values[accelIndex];
           accelIndex = (accelIndex + 1) % accelCount;
-          var posDelta = accel*subTimeDeltaSquared + newVel*subTimeDelta;
+          var posDelta = 0.5*accel*subTimeDeltaSquared + newVel*subTimeDelta;
           newPos = newPos + posDelta;
           newVel = accel*subTimeDelta + newVel;
           if (newPos > maxPos) {
@@ -79,15 +103,17 @@
     }    
 
     function updateAllSimd(timeDelta) {
-      var steps = Math.ceil(1000.0*timeDelta/accelData.interval);
-      var accelCount = accelData.values.length;
-      var subTimeDelta = timeDelta/steps;
+//      var steps        = Math.ceil(timeDelta/accelData.interval);
+      var steps        = accelData.steps;
+      var accelCount   = accelData.values.length;
+      var subTimeDelta = timeDelta/steps/1000.0;
 
-      var posArrayx4         = new Float32x4Array(posArray.buffer);
-      var velArrayx4         = new Float32x4Array(velArray.buffer);
-      var maxPosx4           = SIMD.float32x4.splat(maxPos);
+      var posArrayx4            = new Float32x4Array(posArray.buffer);
+      var velArrayx4            = new Float32x4Array(velArray.buffer);
+      var maxPosx4              = SIMD.float32x4.splat(maxPos);
       var subTimeDeltax4        = SIMD.float32x4.splat(subTimeDelta);
       var subTimeDeltaSquaredx4 = SIMD.float32x4.mul(subTimeDeltax4, subTimeDeltax4);
+      var point5x4              = SIMD.float32x4.splat(0.5);
 
       for (var i = 0, len = (actualBirds+3)>>2; i < len; ++i) {
         var accelIndex = 0;
@@ -99,7 +125,7 @@
           var accelx4            = SIMD.float32x4.splat(accel);
           accelIndex             = (accelIndex + 1) % accelCount;
           var posDeltax4;
-          posDeltax4 = SIMD.float32x4.mul(accelx4, subTimeDeltaSquaredx4);
+          posDeltax4 = SIMD.float32x4.mul(point5x4, SIMD.float32x4.mul(accelx4, subTimeDeltaSquaredx4));
           posDeltax4 = SIMD.float32x4.add(posDeltax4, SIMD.float32x4.mul(newVelx4,subTimeDeltax4));
           newPosx4   = SIMD.float32x4.add(newPosx4, posDeltax4);
           newVelx4 = SIMD.float32x4.add(newVelx4, SIMD.float32x4.mul(accelx4, subTimeDeltax4));
@@ -112,8 +138,8 @@
       }
     }    
 
-    function setAccelData(accelData) {
-      
+    function posOf(index) {
+      return posArray[index];
     }
 
     function dumpOne(index) {
@@ -121,11 +147,13 @@
     }
 
     return {
-      clearAll:      clearAll,
-      addBird:       addBird,
-      updateAll:     updateAll,
-      updateAllSimd: updateAllSimd,
-      dumpOne:       dumpOne
+      init:           init,
+      addBird:        addBird,
+      removeLastBird: removeLastBird,
+      updateAll:      updateAll,
+      updateAllSimd:  updateAllSimd,
+      posOf:          posOf,
+      dumpOne:        dumpOne
     };
 
   }();
@@ -195,6 +223,19 @@
       sprites.push({img: $img});
       return sprites.length - 1;
     }
+
+    function createImageSprite(imageSrc) {
+      if (useCanvas) {
+        logger.error("Cannot create canvas image sprite");
+        return 0;
+      }
+      else {
+        var $img = $("<img>").attr("src", imageSrc);
+        $img.css("position", "absolute");
+        sprites.push({img: $img});
+        return sprites.length - 1;
+      }
+    }
     
     function createSprite(width, height, rgbaData) {
       if (useCanvas) {
@@ -214,9 +255,11 @@
     function placeDomSprite(spriteId, x, y) {
       var $img = sprites[spriteId].img;
       var $imgClone = $img.clone();
-      domNode.appendChild($imgClone[0]);
-      $imgClone.css("left", x);
-      $imgClone.css("top", y);
+      var imgClone  = $imgClone[0];
+      domNode.appendChild(imgClone);
+      imgClone.style.left = x + "px";
+      imgClone.style.top  = y + "px";
+//      $imgClone.css({left:x, top:y});
       spritePositions.push({img: $imgClone, x: x, y: y});
       return spritePositions.length - 1;
     }
@@ -242,10 +285,12 @@
     function moveDomSprite(posId, x, y) {
       var spritePos = spritePositions[posId]; 
       var $img = spritePos.img;
+      var img = $img[0];
       spritePos.x = x;
       spritePos.y = y;
-      $img.css("left", x);
-      $img.css("top", y);
+//      $img.css({left:x, top:y});
+      img.style.left = x + "px";
+      img.style.top  = y + "px";
     }
     
     function moveSprite(posId, x, y) {
@@ -284,31 +329,101 @@
     }
     
     return {
-      init:             init,
-      createSprite:     createSprite,
-      placeSprite:      placeSprite,
-      moveSprite:       moveSprite,
-      removeLastSprite: removeLastSprite,
-      posOf:            posOf
+      init:              init,
+      createSprite:      createSprite,
+      createImageSprite: createImageSprite,
+      placeSprite:       placeSprite,
+      moveSprite:        moveSprite,
+      removeLastSprite:  removeLastSprite,
+      posOf:             posOf
     };
       
   }();
-  
-  function animateBirds() {
-  
+
+
+  // keep track of the FPS
+
+  var fpsAccounting = function() {
+
     var targetFps         = 30.0;
-    var targetFpsMin      = 32.0;
-    var targetFpsMax      = 28.0;
-    var frameAverageCount = 10;
-    
+    var targetFpsMax      = 30.5;
+    var targetFpsMin      = 29.5;
+    var frameCountMax     = 10;
+    var frameCount        = 0;
+    var startTime         = 0.0;
+    var currentFpsValue;
+
+    function adjustCount(actual, target) {
+      var diff = Math.abs(actual - target);
+      if (diff > 20.0) {
+        return 50;
+      }
+      else if (diff > 10.0) {
+        return 20;
+      }
+      else if (diff > 5.0) {
+        return 10;
+      }
+      else if (diff > 2.0) {
+        return 5;
+      }
+      else {
+        return 1;
+      }      
+    }
+
+    // called for each frame update
+    function adjustBirds(time, bird, addBirds, removeBirds) {
+      var adjustmentMade = false;
+      if (frameCount === 0) {
+        startTime = time;
+        frameCount++;
+      }
+      else if (frameCount < frameCountMax) {
+        frameCount++;
+      }
+      else { // frameCount == frameCountMax
+        var delta = time - startTime;
+        var fps   = 1000.0*frameCountMax/delta;
+        currentFpsValue = fps;        
+        if (fps > targetFpsMax) {
+          addBirds(bird, adjustCount(fps, targetFps));
+          adjustmentMade = true;
+        }
+        else if (fps < targetFpsMin) {
+          removeBirds(adjustCount(fps, targetFps));
+          adjustmentMade = true;
+        }
+        startTime  = time;
+        frameCount = 1;
+      }
+      return adjustmentMade;
+    }
+
+    function currentFps(time) {
+      return currentFpsValue;
+    }
+
+    return {
+      currentFps:  currentFps,
+      adjustBirds: adjustBirds
+    }
+  }();
+
+
+  function animateBirds() {
+
+    var animate      = false;
+    var useSimd      = false;
+  
     var birdSprite;
-    var birds        = [];
-    var animate      = true;
+    var birdSpriteBase;
+    var birdSpriteSimd;
+    var allBirds     = [];
     var lastTime     = Date.now();
     var $fps         = $("#fps");
     var $birds       = $("#birds");
-    var frameCount   = 0;
-    var startTime;
+    var lastTime     = 0.0;
 
     function randomY() {
       return Math.floor(Math.random()*config.surfaceHeight);
@@ -319,14 +434,19 @@
     }
     
     function addBird(birdSprite) {
-      birds.push({id: surface.placeSprite(birdSprite, randomX(), randomY()), vel: 1});
+      var y = randomY();
+      var x = randomX();
+      var birdId   = birds.addBird(y, y/10.0);
+      var spriteId = surface.placeSprite(birdSprite, x, y);
+      allBirds.push({birdId: birdId, spriteId: spriteId, startX: x, startY: y});
     }
     
     function removeLastBird() {
-      if (birds.length > 0) {
+      if (allBirds.length > 0) {
+        birds.removeLastBird();
         surface.removeLastSprite();
+        allBirds.pop();
       }
-      birds.pop();
     }
     
     function addBirds(bird, count) {
@@ -338,58 +458,6 @@
     function removeBirds(count) {
       for (var i = 0; i < count; ++i) {
         removeLastBird();
-      }
-    }
-      
-    function moveAll(time) {
-      if (animate) {
-        requestAnimationFrame(moveAll);
-      }
-      if (frameCount === 0) {
-        startTime = time;
-        frameCount++;
-      }
-      else if (frameCount === frameAverageCount) {
-        var delta = time - startTime;
-        var fps   = frameCount*1000.0/delta;
-        if (fps < targetFpsMin) {
-          removeBirds(1);
-        }
-        else if (fps > targetFpsMax) {
-          var fpsDelta = fps - targetFps;
-          var newBirdCount;
-          if (fpsDelta > 10.0) {
-            newBirdCount = 10;
-          }
-          else if (fps > 5.0) {
-            newBirdCount = 5;
-          }
-          else {
-            newBirdCount = 1;
-          }
-          addBirds(birdSprite, newBirdCount);
-        }
-        $fps.text(fps.toFixed(2));
-        $birds.text(birds.length);
-        frameCount = 0;
-      }
-      else {
-        frameCount++;
-      }
-      
-      for (var i = 0; i < birds.length; ++i) {
-        var bird = birds[i];
-        var pos = surface.posOf(bird.id);
-        var vel = bird.vel;
-        if (vel > 0 && pos.y < config.surfaceHeight) {
-          surface.moveSprite(bird.id, pos.x, pos.y+vel);
-        }
-        else if (vel < 0 && pos.y > 0) {
-          surface.moveSprite(bird.id, pos.x, pos.y+vel);
-        }
-        else {
-          bird.vel = -bird.vel;
-        }
       }
     }
 
@@ -413,24 +481,88 @@
       else {
         button.val("Stop");
         animate = true;
+        lastTime = 0.0;
         moveAll();
       }
     }
 
-    birdSprite = blackDotSprite(5, 5);
+    function useSimdClick() {
+      var button = $("#useSimd");
+      if (useSimd) {
+        birdSprite = birdSpriteBase;
+        useSimd = false;
+        button.val("SIMD On");
+      }
+      else {
+        birdSprite = birdSpriteSimd;
+        useSimd = true;
+        button.val("SIMD Off");
+      }
+    }
+
+    // main animation function.  One new frame is created and the next one is requested
+
+    function moveAll(time) {
+      if (animate) {
+        requestAnimationFrame(moveAll);
+      }
+
+      if (typeof time === "undefined") {
+        return;
+      }
+
+      if (fpsAccounting.adjustBirds(time, birdSprite, addBirds, removeBirds)) {
+        $fps.text(fpsAccounting.currentFps().toFixed(2));
+        $birds.text(allBirds.length);
+      }
+
+      if (lastTime !== 0.0) {
+        if (useSimd) {
+          birds.updateAllSimd(time - lastTime);
+        }
+        else {
+          birds.updateAll(time - lastTime);
+        }
+      }
+      lastTime = time;
+
+      for (var i = 0; i < allBirds.length; ++i) {
+        var bird = allBirds[i];
+        var pos = birds.posOf(bird.birdId);
+        surface.moveSprite(bird.spriteId, bird.startX, pos);
+      }
+    }
+
+    birds.init(config.surfaceHeight);
+
+//    birdSprite = blackDotSprite(5, 5);
+    birdSpriteBase = surface.createImageSprite("fbird.png");
+    birdSpriteSimd = surface.createImageSprite("fbird2.png");
+    birdSprite     = birdSpriteBase;
     $("#canvasSurface").hide();
 //    surface.init($("#canvasSurface")[0]);
     surface.init($("#domSurface")[0]);
-    addBirds(birdSprite, 100);
+    addBirds(birdSprite, 5);
     $("#startStop").click(startStopClick);    
-    moveAll();
+    $("#useSimd").click(useSimdClick);
+    if (animate) {
+      moveAll();
+    }
   }
-  
-  function main() {
-    animateBirds();
-    return;
+
+  function testBirds() {
     var updates = 10;
-    logger.trace("main");
+
+    function addAllBirds() {
+      birds.init(1000.0);
+      for (var i = 0; i < config.maxBirds; ++i) {
+        birds.addBird(500.0, 100.0);
+      }
+    }
+
+    $("#canvasSurface").hide();
+    $("#domSurface").hide();
+
     addAllBirds();
     var start = Date.now();
     for (var i = 0; i < updates; ++i) {
@@ -442,7 +574,6 @@
       birds.dumpOne(i+4);
     }
     if (typeof SIMD !== "undefined") {
-      birds.clearAll();
       addAllBirds();
       var start = Date.now();
       for (var i = 0; i < updates; ++i) {
@@ -454,13 +585,12 @@
         birds.dumpOne(i+4);
       }
     }
-/*
-    createBird();
-    placeBird(200, 200);
-    setTimeout(function() {
-      removeBird(200, 200)
-    }, 2000);
-*/
+  }
+  
+  function main() {
+    logger.trace("main");
+    animateBirds();
+//    testBirds();
   }
 
   $(main);
