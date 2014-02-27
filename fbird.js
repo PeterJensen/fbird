@@ -356,16 +356,16 @@
     function adjustCount(actual, target, totalCount) {
       var diff = Math.abs(actual - target);
       if (diff > 20.0) {
-        return Math.ceil(actual < target ? totalCount/2 : totalCount*2);
+        return Math.ceil(totalCount/2);
       }
       else if (diff > 10.0) {
-        return Math.ceil(actual < target ? totalCount/3 : totalCount*1.5);
+        return math.ceil(totalCount/3);
       }
       else if (diff > 5.0) {
-        return Math.ceil(actual < target ? totalCount/4 : totalCount*1.2);
+        return Math.ceil(totalCount/4);
       }
       else if (diff > 2.0) {
-        returnMath.ceil(actual < target ? totalCount/5 : totalCount*1.1);
+        return Math.ceil(totalCount/5);
       }
       else {
         return 1;
