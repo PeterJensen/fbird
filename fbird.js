@@ -52,7 +52,7 @@
     var accelData = {
       steps:     20000,
       interval:  0.002,  // time in millis seconds for each accel value
-      values:   [10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0].map(function(v) { return 2*v; })
+      values:   [10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0].map(function(v) { return 50*v; })
     }
 
     function init(maxPosition) {
@@ -353,19 +353,19 @@
     var startTime         = 0.0;
     var currentFpsValue;
 
-    function adjustCount(actual, target) {
+    function adjustCount(actual, target, totalCount) {
       var diff = Math.abs(actual - target);
       if (diff > 20.0) {
-        return 50;
+        return Math.ceil(actual < target ? totalCount/2 : totalCount*2);
       }
       else if (diff > 10.0) {
-        return 20;
+        return Math.ceil(actual < target ? totalCount/3 : totalCount*1.5);
       }
       else if (diff > 5.0) {
-        return 10;
+        return Math.ceil(actual < target ? totalCount/4 : totalCount*1.2);
       }
       else if (diff > 2.0) {
-        return 5;
+        returnMath.ceil(actual < target ? totalCount/5 : totalCount*1.1);
       }
       else {
         return 1;
@@ -373,7 +373,7 @@
     }
 
     // called for each frame update
-    function adjustBirds(time, bird, addBirds, removeBirds) {
+    function adjustBirds(time, bird, totalCount, addBirds, removeBirds) {
       var adjustmentMade = false;
       if (frameCount === 0) {
         startTime = time;
@@ -387,11 +387,11 @@
         var fps   = 1000.0*frameCountMax/delta;
         currentFpsValue = fps;        
         if (fps > targetFpsMax) {
-          addBirds(bird, adjustCount(fps, targetFps));
+          addBirds(bird, adjustCount(fps, targetFps, totalCount));
           adjustmentMade = true;
         }
         else if (fps < targetFpsMin) {
-          removeBirds(adjustCount(fps, targetFps));
+          removeBirds(adjustCount(fps, targetFps, totalCount));
           adjustmentMade = true;
         }
         startTime  = time;
@@ -511,7 +511,7 @@
         return;
       }
 
-      if (fpsAccounting.adjustBirds(time, birdSprite, addBirds, removeBirds)) {
+      if (fpsAccounting.adjustBirds(time, birdSprite, allBirds.length, addBirds, removeBirds)) {
         $fps.text(fpsAccounting.currentFps().toFixed(2));
         $birds.text(allBirds.length);
       }
