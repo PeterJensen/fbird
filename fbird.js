@@ -359,7 +359,7 @@
         return Math.ceil(totalCount/2);
       }
       else if (diff > 10.0) {
-        return math.ceil(totalCount/3);
+        return Math.ceil(totalCount/3);
       }
       else if (diff > 5.0) {
         return Math.ceil(totalCount/4);
