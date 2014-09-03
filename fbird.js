@@ -1,5 +1,19 @@
 // Author: Peter Jensen
-(function() {
+
+// Keep JSLint/JSHint happy
+/*globals console: true */
+/*globals Float32Array: true */
+/*globals Float32x4Array: true */
+/*globals SIMD: true */
+/*globals $: true */
+/*globals Uint8ClampedArray: true */
+/*globals requestAnimationFrame: true */
+/*globals window: true */
+/*globals navigator: true */
+/*globals performance: true */
+/*globals setTimeout: true */
+
+var fbird = (function() {
 
   // configuration
   var config = {
@@ -10,6 +24,13 @@
     maxBirds:      100000
   };
 
+  var globals = {
+    surfaceWidth:  config.surfaceWidth,
+    surfaceHeight: config.surfaceHeight,
+    params:        null,
+    initialized:   false
+  };
+  
   var logger = function () {
     
     var traceEnabled = true;
@@ -37,7 +58,7 @@
       error: error,
       traceEnable: traceEnable,
       traceDisable: traceDisable
-    }
+    };
   }();
 
   // Keep track of bird positions and velocities
@@ -52,12 +73,16 @@
     var accelData = {
       steps:     20000,
       interval:  0.002,  // time in millis seconds for each accel value
-      values:   [10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0].map(function(v) { return 50*v; })
-    }
+      values:   [10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0].map(function(v) { return 50*v; }),
+      valueConst: 1000.0
+    };
 
     function init(maxPosition) {
       actualBirds = 0;
       maxPos      = maxPosition;
+      if (globals.params.accelSteps !== "null") {
+        accelData.steps = globals.params.accelSteps;
+      }
     }
         
     function addBird(pos, vel) {
@@ -77,6 +102,22 @@
       }
     }
 
+    function updateAllConstantAccel(timeDelta) {
+      var timeDeltaSec = timeDelta/1000.0;
+      var timeDeltaSecSquared = timeDeltaSec*timeDeltaSec;
+      for (var i = 0; i < actualBirds; ++i) {
+        var pos = posArray[i];
+        var vel = velArray[i];
+        var newPos = 0.5*accelData.valueConst*timeDeltaSecSquared + vel*timeDeltaSec + pos;
+        var newVel = accelData.valueConst*timeDeltaSec + vel;
+        if (newPos > maxPos && newVel > 0) {
+          newVel = -newVel;
+        }
+        posArray[i] = newPos;
+        velArray[i] = newVel;
+      }
+    }
+    
     function updateAll(timeDelta) {
 //      var steps               = Math.ceil(timeDelta/accelData.interval);
       var steps               = accelData.steps;
@@ -95,6 +136,7 @@
           newVel = accel*subTimeDelta + newVel;
           if (newPos > maxPos) {
             newVel = -newVel;
+            newPos = maxPos;
           }
         }
         posArray[i] = newPos;
@@ -147,13 +189,14 @@
     }
 
     return {
-      init:           init,
-      addBird:        addBird,
-      removeLastBird: removeLastBird,
-      updateAll:      updateAll,
-      updateAllSimd:  updateAllSimd,
-      posOf:          posOf,
-      dumpOne:        dumpOne
+      init:                   init,
+      addBird:                addBird,
+      removeLastBird:         removeLastBird,
+      updateAllConstantAccel: updateAllConstantAccel,
+      updateAll:              updateAll,
+      updateAllSimd:          updateAllSimd,
+      posOf:                  posOf,
+      dumpOne:                dumpOne
     };
 
   }();
@@ -164,23 +207,30 @@
     var useCanvas = false;
     var ctx;
     var domNode;
+    var $domNode;
     
     var sprites         = [];
     var spritePositions = [];
-
+    
     function init(domElem) {
-      if ($(domElem).prop("tagName") === "CANVAS") {
+      $domNode = $(domElem);
+      if ($domNode.prop("tagName") === "CANVAS") {
         useCanvas = true;
         ctx = domElem.getContext("2d");
-        $(domElem).attr("width", config.surfaceWidth);
-        $(domElem).attr("height", config.surfaceHeight);
+        globals.surfaceWidth = $domNode.width();
+        globals.surfaceHight = $domNode.height();
+//        $(domElem).attr("width", config.surfaceWidth);
+//        $(domElem).attr("height", config.surfaceHeight);
       }
       else {
         domNode = domElem;
-        $(domNode).css("width", config.surfaceWidth);
-        $(domNode).css("height", config.surfaceHeight);
-        $(domNode).css("position", "absolute");
+        globals.surfaceWidth = $domNode.width();
+        globals.surfaceHeight = $domNode.height();
+//        $(domNode).css("width", config.surfaceWidth);
+//        $(domNode).css("height", config.surfaceHeight);
       }
+      sprites         = [];
+      spritePositions = [];
     }
     
     function createCanvasSprite(width, height, rgbaData) {
@@ -224,16 +274,20 @@
       return sprites.length - 1;
     }
 
-    function createImageSprite(imageSrc) {
+    function createImageSprite(imageSrc, width, height, scale) {
       if (useCanvas) {
         logger.error("Cannot create canvas image sprite");
         return 0;
       }
       else {
         var $img = $("<img>").attr("src", imageSrc);
-        $img.css("position", "absolute");
-        sprites.push({img: $img});
-        return sprites.length - 1;
+        var spriteId = sprites.length;
+        $img.css({position: "absolute", margin: "0px 0px"});
+        if (scale != 1.0) {
+          $img.css("transform", "scale(" + scale + ")");
+        }
+        sprites.push({img: $img, width: width*scale, height: height*scale});
+        return spriteId;
       }
     }
     
@@ -256,10 +310,9 @@
       var $img = sprites[spriteId].img;
       var $imgClone = $img.clone();
       var imgClone  = $imgClone[0];
-      domNode.appendChild(imgClone);
+      $domNode.append($imgClone);
       imgClone.style.left = x + "px";
       imgClone.style.top  = y + "px";
-//      $imgClone.css({left:x, top:y});
       spritePositions.push({img: $imgClone, x: x, y: y});
       return spritePositions.length - 1;
     }
@@ -284,11 +337,9 @@
 
     function moveDomSprite(posId, x, y) {
       var spritePos = spritePositions[posId]; 
-      var $img = spritePos.img;
-      var img = $img[0];
-      spritePos.x = x;
-      spritePos.y = y;
-//      $img.css({left:x, top:y});
+      var img   = spritePos.img[0];
+//      spritePos.x = x;
+//      spritePos.y = y;
       img.style.left = x + "px";
       img.style.top  = y + "px";
     }
@@ -328,6 +379,11 @@
       return spritePositions[posId];
     }
     
+    function dimOfSprite(spriteId) {
+      var sprite = sprites[spriteId];
+      return {width: sprite.width, height: sprite.height};
+    }
+    
     return {
       init:              init,
       createSprite:      createSprite,
@@ -335,7 +391,8 @@
       placeSprite:       placeSprite,
       moveSprite:        moveSprite,
       removeLastSprite:  removeLastSprite,
-      posOf:             posOf
+      posOf:             posOf,
+      dimOfSprite:       dimOfSprite
     };
       
   }();
@@ -348,32 +405,41 @@
     var targetFps         = 30.0;
     var targetFpsMax      = 30.5;
     var targetFpsMin      = 29.5;
-    var frameCountMax     = 10;
+    var frameCountMax     = 30;
     var frameCount        = 0;
     var startTime         = 0.0;
-    var currentFpsValue;
+    var currentFpsValue   = 0.0;
 
-    function adjustCount(actual, target, totalCount) {
-      var diff = Math.abs(actual - target);
+    function adjustCount(actualFps, targetFps, birdCount) {
+      var diff = Math.abs(actualFps - targetFps);
+      if (diff < 2.0) {
+        return 1;
+      }
+      else {
+        var computedAdjust = Math.ceil(diff*(birdCount+1)/actualFps/2);
+        return computedAdjust;
+      }
+/*
       if (diff > 20.0) {
-        return Math.ceil(totalCount/2);
+        return 20;
       }
       else if (diff > 10.0) {
-        return Math.ceil(totalCount/3);
+        return 10;
       }
       else if (diff > 5.0) {
-        return Math.ceil(totalCount/4);
+        return 10;
       }
       else if (diff > 2.0) {
-        return Math.ceil(totalCount/5);
+        return 5;
       }
       else {
         return 1;
       }      
+*/
     }
 
     // called for each frame update
-    function adjustBirds(time, bird, totalCount, addBirds, removeBirds) {
+    function adjustBirds(time, birdCount, bird, addBirds, removeBirds) {
       var adjustmentMade = false;
       if (frameCount === 0) {
         startTime = time;
@@ -385,13 +451,17 @@
       else { // frameCount == frameCountMax
         var delta = time - startTime;
         var fps   = 1000.0*frameCountMax/delta;
-        currentFpsValue = fps;        
+        currentFpsValue = fps;
         if (fps > targetFpsMax) {
-          addBirds(bird, adjustCount(fps, targetFps, totalCount));
+//          var addCount = birdCount < 20 ? 1 : adjustCount(fps, targetFps);
+          var addCount = adjustCount(fps, targetFps, birdCount);
+          addBirds(bird, addCount);
           adjustmentMade = true;
         }
         else if (fps < targetFpsMin) {
-          removeBirds(adjustCount(fps, targetFps, totalCount));
+//          var reduceCount = birdCount < 20 ? 1 : adjustCount(fps, targetFps);
+          var reduceCount = adjustCount(fps, targetFps, birdCount);
+          removeBirds(reduceCount);
           adjustmentMade = true;
         }
         startTime  = time;
@@ -407,36 +477,52 @@
     return {
       currentFps:  currentFps,
       adjustBirds: adjustBirds
-    }
+    };
   }();
 
 
-  function animateBirds() {
+  var animation = function() {
 
-    var animate      = false;
+    var animate;
     var useSimd      = false;
   
     var birdSprite;
     var birdSpriteBase;
     var birdSpriteSimd;
     var allBirds     = [];
-    var lastTime     = Date.now();
-    var $fps         = $("#fps");
-    var $birds       = $("#birds");
+    var $fps;
+    var $birds;
     var lastTime     = 0.0;
 
+    function randomXY(max) {
+      return Math.floor(Math.random()*max);
+    }
+
     function randomY() {
-      return Math.floor(Math.random()*config.surfaceHeight);
+      return Math.floor(Math.random()*globals.surfaceHeight/2);
     }
 
     function randomX() {
-      return Math.floor(Math.random()*config.surfaceWidth);
+      return Math.floor(Math.random()*globals.surfaceWidth);
+    }
+
+    function getStartValue(start, max, randomFunc) {
+      if (start === "random") {
+        return randomFunc(max);
+      }
+      else if (start === "center") {
+        return Math.floor(max/2);
+      }
+      else {
+        return parseInt(start);
+      }
     }
     
     function addBird(birdSprite) {
-      var y = randomY();
-      var x = randomX();
-      var birdId   = birds.addBird(y, y/10.0);
+      var birdWidth = surface.dimOfSprite(birdSprite).width;
+      var x = getStartValue(globals.params.startX, globals.surfaceWidth-birdWidth, randomXY);
+      var y = getStartValue(globals.params.startY, globals.surfaceHeight/2, randomXY);
+      var birdId   = birds.addBird(y, 0.0);
       var spriteId = surface.placeSprite(birdSprite, x, y);
       allBirds.push({birdId: birdId, spriteId: spriteId, startX: x, startY: y});
     }
@@ -461,6 +547,12 @@
       }
     }
 
+    function removeAllBirds() {
+      while (allBirds.length > 0) {
+        removeLastBird();
+      }
+    }
+    
     function blackDotSprite(width, height) {
       var rgbaValues = new Uint8ClampedArray(width*height*4);
       for (var i = 0, n = width*height*4; i < n; i += 4) {
@@ -491,12 +583,12 @@
       if (useSimd) {
         birdSprite = birdSpriteBase;
         useSimd = false;
-        button.val("SIMD On");
+        button.text("SIMD: OFF");
       }
       else {
         birdSprite = birdSpriteSimd;
         useSimd = true;
-        button.val("SIMD Off");
+        button.text("SIMD: ON");
       }
     }
 
@@ -504,20 +596,32 @@
 
     function moveAll(time) {
       if (animate) {
-        requestAnimationFrame(moveAll);
+        if (globals.params.useSetTimeout === "true") {
+          setTimeout(moveAll, 1);
+          time = performance.now();
+        }
+        else {
+          requestAnimationFrame(moveAll);
+        }
       }
 
       if (typeof time === "undefined") {
         return;
       }
 
-      if (fpsAccounting.adjustBirds(time, birdSprite, allBirds.length, addBirds, removeBirds)) {
+      if (globals.params.adjustBirds === "true") {
+        if (fpsAccounting.adjustBirds(time, allBirds.length, birdSprite, addBirds, removeBirds)) {
+          $birds.text(allBirds.length);
+        }
         $fps.text(fpsAccounting.currentFps().toFixed(2));
-        $birds.text(allBirds.length);
       }
 
       if (lastTime !== 0.0) {
-        if (useSimd) {
+        var timeDelta = time - lastTime;
+        if (globals.params.constantAccel === "true") {
+          birds.updateAllConstantAccel(timeDelta);
+        }
+        else if (useSimd) {
           birds.updateAllSimd(time - lastTime);
         }
         else {
@@ -533,65 +637,189 @@
       }
     }
 
-    birds.init(config.surfaceHeight);
+    function init() {
+      // initalize module variables
+      useSimd  = false;
+      allBirds = [];
+      lastTime = 0.0;
 
-//    birdSprite = blackDotSprite(5, 5);
-    birdSpriteBase = surface.createImageSprite("fbird.png");
-    birdSpriteSimd = surface.createImageSprite("fbird2.png");
-    birdSprite     = birdSpriteBase;
-    $("#canvasSurface").hide();
-//    surface.init($("#canvasSurface")[0]);
-    surface.init($("#domSurface")[0]);
-    addBirds(birdSprite, 5);
-    $("#startStop").click(startStopClick);    
-    $("#useSimd").click(useSimdClick);
-    if (animate) {
-      moveAll();
+      $fps   = $("#fps");
+      $birds = $("#birds");
+      surface.init($("#domSurface")[0]);
+      birdSpriteBase = surface.createImageSprite("fbird-spy2.png", 34, 25, globals.params.scale);
+      birdSpriteSimd = surface.createImageSprite("fbird2-spy.png", 34, 25, globals.params.scale);
+      birdSprite     = birdSpriteBase;
+  
+      var birdDim = surface.dimOfSprite(birdSpriteBase);
+      birds.init(globals.surfaceHeight - birdDim.height);
+  
+      addBirds(birdSprite, globals.params.initialBirdCount);
+      $("#startStop").click(startStopClick);    
+      if (typeof SIMD !== "undefined") {
+        $("#useSimd").click(useSimdClick);
+      }
+    }
+    
+    function start() {
+      if (!animate) {
+        animate = true;
+        lastTime = 0.0;
+        moveAll();
+      }
+    }
+    
+    function stop() {
+      animate = false;
+    }
+    
+    function close() {
+      stop();
+      removeAllBirds();
+    }
+    
+    return {
+      init:  init,      
+      start: start,
+      stop:  stop,
+      close: close
+    };
+    
+  }();
+
+  // parse URL parameters
+  
+  var parameters = function () {
+    
+    // default parameters
+    var parameters = {
+      "divId":              "#fbirdDiv",
+      "autoStart":          "false",
+      "adjustBirds":        "true",
+      "initialBirdCount":   "20",
+      "startStopButton":    "true",
+      "simdButton":         "true",
+      "fpsIndicator":       "true",
+      "birdCountIndicator": "true",
+      "useCanvas":          "false",
+      "useDom":             "true",
+      "constantAccel":      "false",
+      "scale":              "1.0",
+      "startX":             "random",
+      "startY":             "random",
+      "width":              "null",  // inherit from enclosing div
+      "height":             "null",  // inherit from enclosing div
+      "initialize":         "true",
+      "alwaysInitialize":   "false", // ignore value of initialize
+      "useSetTimeout":      "false",
+      "accelSteps":         "null"
+    };
+    
+    function parse(options) {
+      // copy options
+      if (typeof options !== "undefined") {
+        for (var key in options) {
+          if (options.hasOwnProperty(key)) {
+            parameters[key] = options[key];
+          }
+        }
+      }
+      // override with URL options
+      var href = window.location.href;
+      var paramMatch = /(?:\?|\&)(\w+)=((?:\w|\.|\%)+)/g;
+      var match = paramMatch.exec(href);
+      while (match !== null) {
+        parameters[match[1]] = match[2];
+        match = paramMatch.exec(href);
+      }
+      return parameters;
+    }
+    
+    return {
+      parse: parse
+    };
+    
+  }();
+
+  function createUi() {
+    var $div = $(globals.params.divId);
+    if (globals.params.startStopButton === "true") {
+      var value = globals.params.autoStart === "true" ? "Stop" : "Start";
+      var $start = $("<input>").val(value).attr("id", "startStop").attr("type", "button");
+      $div.append($start);
+    }
+    if (globals.params.simdButton === "true") {
+      var $centerDiv = $("<div>").addClass("centerDiv");
+      var $simd = $("<button>").attr("id", "useSimd").text("SIMD: OFF");
+      $centerDiv.append($simd);
+      $div.append($centerDiv);
+    }
+    if (globals.params.fpsIndicator === "true") {
+      var $rightDiv = $("<div>").addClass("rightDiv");
+      var $fpsSpan = $("<span>").text(" FPS:").append($("<span>").attr("id", "fps"));
+      $rightDiv.append($fpsSpan);
+      $div.append($rightDiv);
+    }
+    if (globals.params.birdCountIndicator === "true") {
+      var $bottomCenterDiv = $("<div>").addClass("centerDiv").addClass("bottomDiv");
+      var $birdCountDiv = $("<div>").attr("id", "birds");
+      $bottomCenterDiv.append($birdCountDiv);
+      $div.append($bottomCenterDiv);
+    }
+    if (globals.params.useCanvas === "true") {
+      var $canvas = $("<div>").attr("id", "canvasSurface");
+      $div.append($canvas);
+    }
+    if (globals.params.useDom === "true") {
+      var $domSurface = $("<div>").attr("id", "domSurface");
+      $domSurface.css("height", $div.css("height"));
+      if (globals.params.width !== "null") {
+        $domSurface.css("width", globals.params.width);
+      }
+      if (globals.params.height !== "null") {
+        $domSurface.css("height", globals.params.height);
+      }
+      $div.append($domSurface);
     }
   }
 
-  function testBirds() {
-    var updates = 10;
-
-    function addAllBirds() {
-      birds.init(1000.0);
-      for (var i = 0; i < config.maxBirds; ++i) {
-        birds.addBird(500.0, 100.0);
+  function init(options) {
+    logger.trace("main");
+    globals.params = parameters.parse(options);
+    if (globals.params.initialize === "true" || globals.params.alwaysInitialize === "true") {
+      createUi();
+      animation.init();
+      if (globals.params.autoStart === "true") {
+        animation.start();
       }
+      globals.initialized = true;
     }
+  }
 
-    $("#canvasSurface").hide();
-    $("#domSurface").hide();
-
-    addAllBirds();
-    var start = Date.now();
-    for (var i = 0; i < updates; ++i) {
-      birds.updateAll(0.016);
+  function close() {
+    if (globals.initialized) {
+      animation.close();
+      $(globals.params.divId).empty();
     }
-    var stop = Date.now();
-    logger.trace("Time per update: " + (stop - start)/updates + "ms");
-    for (var i = 0; i < 4; ++i) {
-      birds.dumpOne(i+4);
-    }
-    if (typeof SIMD !== "undefined") {
-      addAllBirds();
-      var start = Date.now();
-      for (var i = 0; i < updates; ++i) {
-        birds.updateAllSimd(0.016);
-      }
-      var stop = Date.now();
-      logger.trace("Time per update: " + (stop - start)/updates + "ms");
-      for (var i = 0; i < 4; ++i) {
-        birds.dumpOne(i+4);
-      }
+    globals.initialized = false;
+  }
+  
+  function start() {
+    if (globals.initialized) {
+      animation.start();
     }
   }
   
-  function main() {
-    logger.trace("main");
-    animateBirds();
-//    testBirds();
+  function stop() {
+    if (globals.initialized) {
+      animation.stop();
+    }
   }
+  
+  return {
+    init:  init,
+    close: close,
+    start: start,
+    stop:  stop
+  };
 
-  $(main);
 }());

@@ -4,14 +4,25 @@
   <link href="fbird.css" rel="stylesheet">
 </head>
 <body>
-<input type="button" id="startStop" value="Start" />
-<input type="button" id="useSimd" value="SIMD On" />
-FPS: <span id="fps"></span>
-, birds: <span id="birds"></span>
-<br />
-<canvas id="canvasSurface"></canvas>
-<div    id="domSurface"></div>
-<script src="jquery-1.8.3.js" type="text/javascript"></script>
+<div id="fbirdDiv" style="height:100%"></div>
+<script src="jquery-2.1.0.min.js" type="text/javascript"></script>
 <script src="fbird.js" type="text/javascript"></script>
+<script>
+$(function() {
+  if (typeof navigator.appVersion !== "undefined" &&
+      navigator.appVersion.indexOf("Android") !== -1) {
+    fbird.init({
+      divId: "#fbirdDiv",
+      accelSteps: "2000",
+      useSetTimeout: "true"
+    });
+  }
+  else {
+    fbird.init({
+      divId: "#fbirdDiv"
+    });
+  }
+});
+</script>
 </body>
 </html>
