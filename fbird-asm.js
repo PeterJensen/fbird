@@ -24,6 +24,17 @@ if (typeof SIMD == 'undefined') {
   // TODO maybe use the polyfill?
   alert('SIMD not implemented in this browser');
   throw 'SIMD not implemented in this browser';
+} else {
+  // Polyfill float32x4.select
+  try {
+    var x = SIMD.float32x4(1,2,3,4);
+    var T = 0xFFFFFFFF, F = 0x0;
+    var y = SIMD.float32x4.select(SIMD.int32x4(T, T, F, F), x, x);
+    console.log('float32x4.select is implemented');
+  } catch (e) {
+    console.log('float32x4.select isnt implemented');
+    SIMD.float32x4.select = SIMD.int32x4.select;
+  }
 }
 
 var fbird = (function() {
