@@ -16,6 +16,16 @@
 /*globals performance: true */
 /*globals setTimeout: true */
 
+// Polyfill and alerts
+if (typeof Math.fround == 'undefined') {
+  Math.fround = function(x) { return x };
+}
+if (typeof SIMD == 'undefined') {
+  // TODO maybe use the polyfill?
+  alert('SIMD not implemented in this browser');
+  throw 'SIMD not implemented in this browser';
+}
+
 var fbird = (function() {
 
   // configuration
@@ -848,8 +858,8 @@ var fbird = (function() {
       $fps   = $("#fps");
       $birds = $("#birds");
       surface.init($("#domSurface")[0]);
-      birdSpriteBase = surface.createImageSprite("img/fbird-spy2.png", 34, 25, globals.params.scale);
-      birdSpriteSimd = surface.createImageSprite("img/fbird2-spy.png", 34, 25, globals.params.scale);
+      birdSpriteBase = surface.createImageSprite("fbird-spy2.png", 34, 25, globals.params.scale);
+      birdSpriteSimd = surface.createImageSprite("fbird2-spy.png", 34, 25, globals.params.scale);
       birdSprite     = birdSpriteBase;
 
       var birdDim = surface.dimOfSprite(birdSpriteBase);
