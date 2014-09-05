@@ -207,6 +207,10 @@ var fbird = (function() {
       var getActualBirds = imp.getActualBirds;
       var getMaxPos = imp.getMaxPos;
 
+      function declareHeapSize() {
+        f32[0x0007ffff] = toF(0.0);
+      }
+
       function updateAll(timeDelta) {
         timeDelta = toF(timeDelta);
         //      var steps               = Math.ceil(timeDelta/accelData.interval);
@@ -222,9 +226,6 @@ var fbird = (function() {
         var posDelta = toF(0.0);
         var actualBirdsx4 = 0;
         var maxPos = toF(0.0);
-
-        // Declare the heap size.
-        f32[0x0007ffff] = toF(0.0);
 
         steps = getAccelDataSteps() | 0;
         subTimeDelta = toF(toF(timeDelta / toF(steps | 0)) / toF(1000.0));
@@ -332,8 +333,13 @@ var fbird = (function() {
       var f4sub = f4.sub;
       var f4mul = f4.mul;
       var f4greaterThan = f4.greaterThan;
+      var f4splat = f4.splat;
 
       const zerox4 = f4(0.0,0.0,0.0,0.0);
+
+      function declareHeapSize() {
+        f32[0x0007ffff] = toF(0.0);
+      }
 
       function updateAllSimd(timeDelta) {
         timeDelta = toF(timeDelta);
@@ -358,17 +364,13 @@ var fbird = (function() {
         var cmpx4 = i4(0,0,0,0);
         var newVelTruex4 = f4(0.0,0.0,0.0,0.0);
 
-        // Declare the heap size.
-        f32[0x0007ffff] = toF(0.0);
-
         steps = getAccelDataSteps() | 0;
         subTimeDelta = toF(toF(timeDelta / toF(steps | 0)) / toF(1000.0));
         actualBirds = getActualBirds() | 0;
         maxPos = toF(+getMaxPos());
-        maxPosx4 = f4(maxPos, maxPos, maxPos, maxPos);
-        subTimeDeltax4 = f4(subTimeDelta, subTimeDelta, subTimeDelta, subTimeDelta);
+        maxPosx4 = f4splat(maxPos);
+        subTimeDeltax4 = f4splat(subTimeDelta);
         subTimeDeltaSquaredx4 = f4mul(subTimeDeltax4, subTimeDeltax4);
-        point5x4 = f4(toF(0.5), toF(0.5), toF(0.5), toF(0.5));
 
         len = ((actualBirds + 3) >> 2) << 4;
 
@@ -386,7 +388,7 @@ var fbird = (function() {
           for (a = 0; (a | 0) < (steps | 0); a = (a + 1) | 0) {
             accel = toF(f32[(accelIndex & accelMask) + maxBirdsx8 >> 2]);
             // Work around unimplemented splat. This ctor is optimized to splat anyway.
-            accelx4 = f4(accel, accel, accel, accel);
+            accelx4 = f4splat(accel);
             accelIndex = (accelIndex + 4) | 0;
             posDeltax4 = f4mul(point5x4, f4mul(accelx4, subTimeDeltaSquaredx4));
             posDeltax4 = f4add(posDeltax4, f4mul(newVelx4, subTimeDeltax4));
