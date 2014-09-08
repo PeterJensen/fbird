@@ -173,7 +173,13 @@ var fbird = (function() {
           newVelx4 = SIMD.float32x4.add(newVelx4, SIMD.float32x4.mul(accelx4, subTimeDeltax4));
           var cmpx4 = SIMD.float32x4.greaterThan(newPosx4, maxPosx4);
           newVelTruex4 = SIMD.float32x4.neg(newVelx4);
-          newVelx4 = SIMD.int32x4.select(cmpx4, newVelTruex4, newVelx4);
+          newVelx4 = SIMD.float32x4.select(cmpx4, newVelTruex4, newVelx4);
+//          newVelx4 = SIMD.float32x4.fromInt32x4Bits(SIMD.int32x4.or(
+//                       SIMD.int32x4.and(cmpx4,SIMD.int32x4.fromFloat32x4Bits(newVelTruex4)),
+//                       SIMD.int32x3.and(SIMD.int32x4.not(cmpx4), SIMD.int32x4.fromFloat32x4Bits(newVelx4))));
+//          newVelx4 = SIMD.int32x4.bitsToFloat32x4(SIMD.int32x4.or(
+//                       SIMD.int32x4.and(cmpx4,SIMD.float32x4.bitsToInt32x4(newVelTruex4)),
+//                       SIMD.int32x4.and(SIMD.int32x4.not(cmpx4), SIMD.float32x4.bitsToInt32x4(newVelx4))));
         }
         posArrayx4.setAt(i, newPosx4);
         velArrayx4.setAt(i, newVelx4);
