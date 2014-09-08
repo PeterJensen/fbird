@@ -1,3 +1,6 @@
+/* -*- Mode: javascript; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 ; js-indent-level : 2 ; js-curly-indent-offset: 0 -*- */
+/* vim: set ts=2 et sw=2 tw=80: */
+
 // Author: Peter Jensen
 
 // Keep JSLint/JSHint happy
@@ -12,6 +15,27 @@
 /*globals navigator: true */
 /*globals performance: true */
 /*globals setTimeout: true */
+
+// Polyfill and alerts
+if (typeof Math.fround == 'undefined') {
+  Math.fround = function(x) { return x };
+}
+if (typeof SIMD == 'undefined') {
+  // TODO maybe use the polyfill?
+  alert('SIMD not implemented in this browser');
+  throw 'SIMD not implemented in this browser';
+} else {
+  // Polyfill float32x4.select
+  try {
+    var x = SIMD.float32x4(1,2,3,4);
+    var T = 0xFFFFFFFF, F = 0x0;
+    var y = SIMD.float32x4.select(SIMD.int32x4(T, T, F, F), x, x);
+    console.log('float32x4.select is implemented');
+  } catch (e) {
+    console.log('float32x4.select isnt implemented');
+    SIMD.float32x4.select = SIMD.int32x4.select;
+  }
+}
 
 var fbird = (function() {
 
@@ -30,11 +54,11 @@ var fbird = (function() {
     params:        null,
     initialized:   false
   };
-  
+
   var logger = function () {
-    
+
     var traceEnabled = true;
-    
+
     function trace(msg) {
       if (traceEnabled) {
         console.log(msg);
@@ -67,15 +91,17 @@ var fbird = (function() {
 
     var maxPos      = 1000.0;
     var actualBirds = 0;
-    var posArray    = new Float32Array(config.maxBirds);
-    var velArray    = new Float32Array(config.maxBirds);
+
+    var buffer = new ArrayBuffer(0x200000);
+    var bufferF32 = new Float32Array(buffer);
 
     var accelData = {
       steps:     20000,
       interval:  0.002,  // time in millis seconds for each accel value
-      values:   [10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0].map(function(v) { return 50*v; }),
       valueConst: 1000.0
     };
+
+    var accelDataValuesLength = 0;
 
     function init(maxPosition) {
       actualBirds = 0;
@@ -83,15 +109,20 @@ var fbird = (function() {
       if (globals.params.accelSteps !== "null") {
         accelData.steps = globals.params.accelSteps;
       }
+      // Make it a power of two, for quick modulo wrapping.
+      var accelDataValues = [10.0, 9.5, 9.0, 8.0, 7.0, 6.0, 5.5, 5.0, 5.0, 5.0, 5.5, 6.0, 7.0, 8.0, 9.0, 10.0].map(function(v) { return 50*v; });
+      accelDataValuesLength = accelDataValues.length;
+      for (i = 0; i < accelDataValuesLength; i++)
+        bufferF32[i + config.maxBirds * 2] = accelDataValues[i];
     }
-        
+
     function addBird(pos, vel) {
       if (actualBirds >= config.maxBirds) {
         logger.error("maxBirds exceeded");
         return -1;
       }
-      posArray[actualBirds] = pos;
-      velArray[actualBirds] = vel;
+      bufferF32[actualBirds] = pos;
+      bufferF32[actualBirds + config.maxBirds] = vel;
       actualBirds++;
       return actualBirds - 1;
     }
@@ -106,30 +137,31 @@ var fbird = (function() {
       var timeDeltaSec = timeDelta/1000.0;
       var timeDeltaSecSquared = timeDeltaSec*timeDeltaSec;
       for (var i = 0; i < actualBirds; ++i) {
-        var pos = posArray[i];
-        var vel = velArray[i];
+        var pos = bufferF32[i];
+        var vel = bufferF32[i + config.maxBirds];
         var newPos = 0.5*accelData.valueConst*timeDeltaSecSquared + vel*timeDeltaSec + pos;
         var newVel = accelData.valueConst*timeDeltaSec + vel;
         if (newPos > maxPos && newVel > 0) {
           newVel = -newVel;
         }
-        posArray[i] = newPos;
-        velArray[i] = newVel;
+        bufferF32[i] = newPos;
+        bufferF32[i + config.maxBirds] = newVel;
       }
     }
-    
+
     function updateAll(timeDelta) {
-//      var steps               = Math.ceil(timeDelta/accelData.interval);
+      //      var steps               = Math.ceil(timeDelta/accelData.interval);
+      const maxBirds = config.maxBirds;
       var steps               = accelData.steps;
-      var accelCount          = accelData.values.length;
+      var accelCount          = accelDataValuesLength;
       var subTimeDelta        = timeDelta/steps/1000.0;
       var subTimeDeltaSquared = subTimeDelta*subTimeDelta;
       for (var i = 0; i < actualBirds; ++i) {
         var accelIndex          = 0;
-        var newPos = posArray[i];
-        var newVel = velArray[i];
+        var newPos = bufferF32[i];
+        var newVel = bufferF32[i + maxBirds];
         for (var a = 0; a < steps; ++a) {
-          var accel = accelData.values[accelIndex];
+          var accel = bufferF32[accelIndex + config.maxBirds * 2];
           accelIndex = (accelIndex + 1) % accelCount;
           var posDelta = 0.5*accel*subTimeDeltaSquared + newVel*subTimeDelta;
           newPos = newPos + posDelta;
@@ -139,19 +171,101 @@ var fbird = (function() {
             newPos = maxPos;
           }
         }
-        posArray[i] = newPos;
-        velArray[i] = newVel;
+        bufferF32[i] = newPos;
+        bufferF32[i + maxBirds] = newVel;
       }
-    }    
+    }
+
+    function getAccelDataSteps() {
+      return accelData.steps;
+    }
+
+    function getAccelDataValuesLength() {
+      return accelDataValuesLength;
+    }
+
+    function getActualBirds() {
+      return actualBirds;
+    }
+
+    function getMaxPos() {
+      return maxPos;
+    }
+
+    function fbirdModule(global, imp, buffer) {
+      "use asm";
+      var toF = global.Math.fround;
+      var f32 = new global.Float32Array(buffer);
+      const maxBirds = 100000;
+      const maxBirdsx4 = 400000;
+      const maxBirdsx8 = 800000;
+      const accelMask = 0x3c;
+      const mk2 = 0x000ffffc;
+
+      var getAccelDataSteps = imp.getAccelDataSteps;
+      var getAccelDataValuesLength = imp.getAccelDataValuesLength;
+      var getActualBirds = imp.getActualBirds;
+      var getMaxPos = imp.getMaxPos;
+
+      function declareHeapSize() {
+        f32[0x0007ffff] = toF(0.0);
+      }
+
+      function updateAll(timeDelta) {
+        timeDelta = toF(timeDelta);
+        //      var steps               = Math.ceil(timeDelta/accelData.interval);
+        var steps = 0;
+        var subTimeDelta = toF(0.0);
+        var subTimeDeltaSquared = toF(0.0);
+        var i = 0;
+        var accelIndex = 0;
+        var newPos = toF(0.0);
+        var newVel = toF(0.0);
+        var a = 0;
+        var accel = toF(0.0);
+        var posDelta = toF(0.0);
+        var actualBirdsx4 = 0;
+        var maxPos = toF(0.0);
+
+        steps = getAccelDataSteps() | 0;
+        subTimeDelta = toF(toF(timeDelta / toF(steps | 0)) / toF(1000.0));
+        subTimeDeltaSquared = toF(subTimeDelta * subTimeDelta);
+
+        actualBirdsx4 = ((getActualBirds() | 0) * 4) | 0;
+        maxPos = toF(+getMaxPos());
+
+        for (i = 0; (i | 0) < (actualBirdsx4 | 0); i = (i + 4) | 0) {
+          accelIndex = 0;
+          newPos = toF(f32[(i & mk2) >> 2]);
+          newVel = toF(f32[(i & mk2) + maxBirdsx4 >> 2]);
+          for (a = 0; (a | 0) < (steps | 0); a = (a + 1) | 0) {
+            accel = toF(f32[(accelIndex & accelMask) + maxBirdsx8 >> 2]);
+            accelIndex = (accelIndex + 4) | 0;
+            posDelta = toF(toF(toF(0.5) * toF(accel * subTimeDeltaSquared)) + toF(newVel * subTimeDelta));
+            newPos = toF(newPos + posDelta);
+            newVel = toF(toF(accel * subTimeDelta) + newVel);
+            if (newPos > maxPos) {
+              newVel = toF(-newVel);
+              newPos = maxPos;
+            }
+          }
+          f32[(i & mk2) >> 2] = newPos;
+          f32[(i & mk2) + maxBirdsx4 >> 2] = newVel;
+        }
+      }
+
+      return updateAll;
+    }
+
+    var updateAllAsmJS = fbirdModule(this, {getAccelDataSteps: getAccelDataSteps, getAccelDataValuesLength: getAccelDataValuesLength, getActualBirds: getActualBirds, getMaxPos: getMaxPos}, buffer);
 
     function updateAllSimd(timeDelta) {
-//      var steps        = Math.ceil(timeDelta/accelData.interval);
+      //      var steps        = Math.ceil(timeDelta/accelData.interval);
+      const maxBirds = config.maxBirds;
       var steps        = accelData.steps;
-      var accelCount   = accelData.values.length;
+      var accelCount   = accelDataValuesLength;
       var subTimeDelta = timeDelta/steps/1000.0;
 
-      var posArrayx4            = new Float32x4Array(posArray.buffer);
-      var velArrayx4            = new Float32x4Array(velArray.buffer);
       var maxPosx4              = SIMD.float32x4.splat(maxPos);
       var subTimeDeltax4        = SIMD.float32x4.splat(subTimeDelta);
       var subTimeDeltaSquaredx4 = SIMD.float32x4.mul(subTimeDeltax4, subTimeDeltax4);
@@ -160,10 +274,16 @@ var fbird = (function() {
       for (var i = 0, len = (actualBirds+3)>>2; i < len; ++i) {
         var accelIndex = 0;
         var newVelTruex4;
-        var newPosx4 = posArrayx4.getAt(i);
-        var newVelx4 = velArrayx4.getAt(i);
+        var newPosx4 = SIMD.float32x4(bufferF32[i * 4],
+            bufferF32[i * 4 + 1],
+            bufferF32[i * 4 + 2],
+            bufferF32[i * 4 + 3]);
+        var newVelx4 = SIMD.float32x4(bufferF32[i * 4 + maxBirds],
+            bufferF32[i * 4 + maxBirds + 1],
+            bufferF32[i * 4 + maxBirds + 2],
+            bufferF32[i * 4 + maxBirds + 3]);
         for (var a = 0; a < steps; ++a) {
-          var accel              = accelData.values[accelIndex];
+          var accel = bufferF32[accelIndex + config.maxBirds * 2];
           var accelx4            = SIMD.float32x4.splat(accel);
           accelIndex             = (accelIndex + 1) % accelCount;
           var posDeltax4;
@@ -175,17 +295,141 @@ var fbird = (function() {
           newVelTruex4 = SIMD.float32x4.neg(newVelx4);
           newVelx4 = SIMD.int32x4.select(cmpx4, newVelTruex4, newVelx4);
         }
-        posArrayx4.setAt(i, newPosx4);
-        velArrayx4.setAt(i, newVelx4);
+        bufferF32[i * 4] = newPosx4.x;
+        bufferF32[i * 4 + 1] = newPosx4.y;
+        bufferF32[i * 4 + 2] = newPosx4.z;
+        bufferF32[i * 4 + 3] = newPosx4.w;
+        bufferF32[i * 4 + maxBirds] = newVelx4.x;
+        bufferF32[i * 4 + maxBirds + 1] = newVelx4.y;
+        bufferF32[i * 4 + maxBirds + 2] = newVelx4.z;
+        bufferF32[i * 4 + maxBirds + 3] = newVelx4.w;
       }
-    }    
+    }
+
+    function fbirdSimdModule(global, imp, buffer) {
+      "use asm";
+      var toF = global.Math.fround;
+      var f32 = new global.Float32Array(buffer);
+      const maxBirds = 100000;
+      const maxBirdsx4 = 400000;
+      const maxBirdsx4Plus4 = 400004;
+      const maxBirdsx4Plus8 = 400008;
+      const maxBirdsx4Plus12 = 400012;
+      const maxBirdsx8 = 800000;
+      const accelMask = 0x3c;
+      const mk2 = 0x000ffffc;
+
+      var getAccelDataSteps = imp.getAccelDataSteps;
+      var getAccelDataValuesLength = imp.getAccelDataValuesLength;
+      var getActualBirds = imp.getActualBirds;
+      var getMaxPos = imp.getMaxPos;
+
+      var i4 = global.SIMD.int32x4;
+      var f4 = global.SIMD.float32x4;
+      var i4add = i4.add;
+      var i4and = i4.and;
+      var f4select = f4.select;
+      var f4add = f4.add;
+      var f4sub = f4.sub;
+      var f4mul = f4.mul;
+      var f4greaterThan = f4.greaterThan;
+      var f4splat = f4.splat;
+
+      const zerox4 = f4(0.0,0.0,0.0,0.0);
+
+      function declareHeapSize() {
+        f32[0x0007ffff] = toF(0.0);
+      }
+
+      function updateAllSimd(timeDelta) {
+        timeDelta = toF(timeDelta);
+        //      var steps               = Math.ceil(timeDelta/accelData.interval);
+        var steps = 0;
+        var subTimeDelta = toF(0.0);
+        var actualBirds = 0;
+        var maxPos = toF(0.0);
+        var maxPosx4 = f4(0.0,0.0,0.0,0.0);
+        var subTimeDeltax4  = f4(0.0,0.0,0.0,0.0);
+        var subTimeDeltaSquaredx4 = f4(0.0,0.0,0.0,0.0);
+        var point5x4 = f4(0.5, 0.5, 0.5, 0.5);
+        var i = 0;
+        var len = 0;
+        var accelIndex = 0;
+        var newPosx4 = f4(0.0,0.0,0.0,0.0);
+        var newVelx4 = f4(0.0,0.0,0.0,0.0);
+        var accel = toF(0.0);
+        var accelx4 = f4(0.0,0.0,0.0,0.0);
+        var a = 0;
+        var posDeltax4 = f4(0.0,0.0,0.0,0.0);
+        var cmpx4 = i4(0,0,0,0);
+        var newVelTruex4 = f4(0.0,0.0,0.0,0.0);
+
+        steps = getAccelDataSteps() | 0;
+        subTimeDelta = toF(toF(timeDelta / toF(steps | 0)) / toF(1000.0));
+        actualBirds = getActualBirds() | 0;
+        maxPos = toF(+getMaxPos());
+        maxPosx4 = f4splat(maxPos);
+        subTimeDeltax4 = f4splat(subTimeDelta);
+        subTimeDeltaSquaredx4 = f4mul(subTimeDeltax4, subTimeDeltax4);
+
+        len = ((actualBirds + 3) >> 2) << 4;
+
+        for (i = 0; (i | 0) < (len | 0); i = (i + 16) | 0) {
+          accelIndex = 0;
+          // Work around unimplemented Float32x4Array
+          newPosx4 = f4(toF(f32[(i & mk2) >> 2]),
+              toF(f32[(i & mk2) + 4 >> 2]),
+              toF(f32[(i & mk2) + 8 >> 2]),
+              toF(f32[(i & mk2) + 12 >> 2]));
+          newVelx4 = f4(toF(f32[(i & mk2) + maxBirdsx4 >> 2]),
+              toF(f32[(i & mk2) + maxBirdsx4Plus4 >> 2]),
+              toF(f32[(i & mk2) + maxBirdsx4Plus8 >> 2]),
+              toF(f32[(i & mk2) + maxBirdsx4Plus12 >> 2]));
+          for (a = 0; (a | 0) < (steps | 0); a = (a + 1) | 0) {
+            accel = toF(f32[(accelIndex & accelMask) + maxBirdsx8 >> 2]);
+            // Work around unimplemented splat. This ctor is optimized to splat anyway.
+            accelx4 = f4splat(accel);
+            accelIndex = (accelIndex + 4) | 0;
+            posDeltax4 = f4mul(point5x4, f4mul(accelx4, subTimeDeltaSquaredx4));
+            posDeltax4 = f4add(posDeltax4, f4mul(newVelx4, subTimeDeltax4));
+            newPosx4 = f4add(newPosx4, posDeltax4);
+            newVelx4 = f4add(newVelx4, f4mul(accelx4, subTimeDeltax4));
+            cmpx4 = f4greaterThan(newPosx4, maxPosx4);
+
+            // Slower alternative inlining 'select':
+            // newVelTruex4 = f4sub(zerox4, newVelx4);
+            // newVelx4 = f4select(cmpx4, newVelTruex4, newVelx4);
+
+            // Faster alternative moving 'select' out of the hot path:
+            if (cmpx4.signMask) {
+              // Work around unimplemented 'neg' operation, using 0 - x.
+              newVelTruex4 = f4sub(zerox4, newVelx4);
+              newVelx4 = f4select(cmpx4, newVelTruex4, newVelx4);
+            }
+          }
+          // Work around unimplemented Float32x4Array
+          f32[(i & mk2) >> 2] = newPosx4.x;
+          f32[(i & mk2) + 4 >> 2] = newPosx4.y;
+          f32[(i & mk2) + 8 >> 2] = newPosx4.z;
+          f32[(i & mk2) + 12 >> 2] = newPosx4.w;
+          f32[(i & mk2) + maxBirdsx4 >> 2] = newVelx4.x;
+          f32[(i & mk2) + maxBirdsx4Plus4 >> 2] = newVelx4.y;
+          f32[(i & mk2) + maxBirdsx4Plus8 >> 2] = newVelx4.z;
+          f32[(i & mk2) + maxBirdsx4Plus12 >> 2] = newVelx4.w;
+        }
+      }
+
+      return updateAllSimd;
+    }
+
+    var updateAllSimdAsmJS = fbirdSimdModule(this, {getAccelDataSteps: getAccelDataSteps, getAccelDataValuesLength: getAccelDataValuesLength, getActualBirds: getActualBirds, getMaxPos: getMaxPos}, buffer);
 
     function posOf(index) {
-      return posArray[index];
+      return bufferF32[index];
     }
 
     function dumpOne(index) {
-      logger.trace(index + ". pos:" + posArray[index] + ", vel:" + velArray[index]);
+      logger.trace(index + ". pos:" + bufferF32(index) + ", vel:" + bufferF32(index + config.maxBirds));
     }
 
     return {
@@ -193,25 +437,25 @@ var fbird = (function() {
       addBird:                addBird,
       removeLastBird:         removeLastBird,
       updateAllConstantAccel: updateAllConstantAccel,
-      updateAll:              updateAll,
-      updateAllSimd:          updateAllSimd,
+      updateAll:              updateAllAsmJS,
+      updateAllSimd:          updateAllSimdAsmJS,
       posOf:                  posOf,
       dumpOne:                dumpOne
     };
 
   }();
 
-  
+
   var surface = function() {
-  
+
     var useCanvas = false;
     var ctx;
     var domNode;
     var $domNode;
-    
+
     var sprites         = [];
     var spritePositions = [];
-    
+
     function init(domElem) {
       $domNode = $(domElem);
       if ($domNode.prop("tagName") === "CANVAS") {
@@ -219,26 +463,26 @@ var fbird = (function() {
         ctx = domElem.getContext("2d");
         globals.surfaceWidth = $domNode.width();
         globals.surfaceHight = $domNode.height();
-//        $(domElem).attr("width", config.surfaceWidth);
-//        $(domElem).attr("height", config.surfaceHeight);
+        //        $(domElem).attr("width", config.surfaceWidth);
+        //        $(domElem).attr("height", config.surfaceHeight);
       }
       else {
         domNode = domElem;
         globals.surfaceWidth = $domNode.width();
         globals.surfaceHeight = $domNode.height();
-//        $(domNode).css("width", config.surfaceWidth);
-//        $(domNode).css("height", config.surfaceHeight);
+        //        $(domNode).css("width", config.surfaceWidth);
+        //        $(domNode).css("height", config.surfaceHeight);
       }
       sprites         = [];
       spritePositions = [];
     }
-    
+
     function createCanvasSprite(width, height, rgbaData) {
       var sprite      = ctx.createImageData(width, height);
       var blankSprite = ctx.createImageData(width, height);
       var spriteData = sprite.data;
       var blankSpriteData = blankSprite.data;
-      
+
       var len  = width*height*4;
       for (var i = 0; i < len; i+=4) {
         spriteData[i]   = rgbaData[i];
@@ -253,7 +497,7 @@ var fbird = (function() {
       sprites.push({sprite: sprite, blankSprite: blankSprite});
       return sprites.length - 1;
     }
-  
+
     function createDomSprite(width, height, rgbaData) {
       var $canvas = $("<canvas>");
       $canvas.attr("width", width);
@@ -290,7 +534,7 @@ var fbird = (function() {
         return spriteId;
       }
     }
-    
+
     function createSprite(width, height, rgbaData) {
       if (useCanvas) {
         return createCanvasSprite(width, height, rgbaData);
@@ -299,13 +543,13 @@ var fbird = (function() {
         return createDomSprite(width, height, rgbaData);
       }
     }
-    
+
     function placeCanvasSprite(spriteId, x, y) {
       spritePositions.push({spriteId: spriteId, x: x, y: y});
       ctx.putImageData(sprites[spriteId].sprite, x, y);
       return spritePositions.length - 1;
     }
-    
+
     function placeDomSprite(spriteId, x, y) {
       var $img = sprites[spriteId].img;
       var $imgClone = $img.clone();
@@ -327,7 +571,7 @@ var fbird = (function() {
     }
 
     function moveCanvasSprite(posId, x, y) {
-      var spritePos = spritePositions[posId]; 
+      var spritePos = spritePositions[posId];
       var sprite    = sprites[spritePos.spriteId];
       ctx.putImageData(sprite.blankSprite, spritePos.x, spritePos.y);
       spritePos.x = x;
@@ -336,14 +580,14 @@ var fbird = (function() {
     }
 
     function moveDomSprite(posId, x, y) {
-      var spritePos = spritePositions[posId]; 
+      var spritePos = spritePositions[posId];
       var img   = spritePos.img[0];
-//      spritePos.x = x;
-//      spritePos.y = y;
+      //      spritePos.x = x;
+      //      spritePos.y = y;
       img.style.left = x + "px";
       img.style.top  = y + "px";
     }
-    
+
     function moveSprite(posId, x, y) {
       if (useCanvas) {
         moveCanvasSprite(posId, x, y);
@@ -365,25 +609,24 @@ var fbird = (function() {
       spritePos.img.remove();
       spritePositions.pop();
     }
-    
+
     function removeLastSprite() {
       if (useCanvas) {
         removeLastCanvasSprite();
-      }
-      else {
+      } else {
         removeLastDomSprite();
       }
     }
-    
+
     function posOf(posId) {
       return spritePositions[posId];
     }
-    
+
     function dimOfSprite(spriteId) {
       var sprite = sprites[spriteId];
       return {width: sprite.width, height: sprite.height};
     }
-    
+
     return {
       init:              init,
       createSprite:      createSprite,
@@ -394,7 +637,7 @@ var fbird = (function() {
       posOf:             posOf,
       dimOfSprite:       dimOfSprite
     };
-      
+
   }();
 
 
@@ -414,28 +657,10 @@ var fbird = (function() {
       var diff = Math.abs(actualFps - targetFps);
       if (diff < 2.0) {
         return 1;
-      }
-      else {
+      } else {
         var computedAdjust = Math.ceil(diff*(birdCount+1)/actualFps/2);
         return computedAdjust;
       }
-/*
-      if (diff > 20.0) {
-        return 20;
-      }
-      else if (diff > 10.0) {
-        return 10;
-      }
-      else if (diff > 5.0) {
-        return 10;
-      }
-      else if (diff > 2.0) {
-        return 5;
-      }
-      else {
-        return 1;
-      }      
-*/
     }
 
     // called for each frame update
@@ -453,13 +678,13 @@ var fbird = (function() {
         var fps   = 1000.0*frameCountMax/delta;
         currentFpsValue = fps;
         if (fps > targetFpsMax) {
-//          var addCount = birdCount < 20 ? 1 : adjustCount(fps, targetFps);
+          //          var addCount = birdCount < 20 ? 1 : adjustCount(fps, targetFps);
           var addCount = adjustCount(fps, targetFps, birdCount);
           addBirds(bird, addCount);
           adjustmentMade = true;
         }
         else if (fps < targetFpsMin) {
-//          var reduceCount = birdCount < 20 ? 1 : adjustCount(fps, targetFps);
+          //          var reduceCount = birdCount < 20 ? 1 : adjustCount(fps, targetFps);
           var reduceCount = adjustCount(fps, targetFps, birdCount);
           removeBirds(reduceCount);
           adjustmentMade = true;
@@ -485,7 +710,7 @@ var fbird = (function() {
 
     var animate;
     var useSimd      = false;
-  
+
     var birdSprite;
     var birdSpriteBase;
     var birdSpriteSimd;
@@ -517,7 +742,7 @@ var fbird = (function() {
         return parseInt(start);
       }
     }
-    
+
     function addBird(birdSprite) {
       var birdWidth = surface.dimOfSprite(birdSprite).width;
       var x = getStartValue(globals.params.startX, globals.surfaceWidth-birdWidth, randomXY);
@@ -526,7 +751,7 @@ var fbird = (function() {
       var spriteId = surface.placeSprite(birdSprite, x, y);
       allBirds.push({birdId: birdId, spriteId: spriteId, startX: x, startY: y});
     }
-    
+
     function removeLastBird() {
       if (allBirds.length > 0) {
         birds.removeLastBird();
@@ -534,7 +759,7 @@ var fbird = (function() {
         allBirds.pop();
       }
     }
-    
+
     function addBirds(bird, count) {
       for (var i = 0; i < count; ++i) {
         addBird(bird);
@@ -552,7 +777,7 @@ var fbird = (function() {
         removeLastBird();
       }
     }
-    
+
     function blackDotSprite(width, height) {
       var rgbaValues = new Uint8ClampedArray(width*height*4);
       for (var i = 0, n = width*height*4; i < n; i += 4) {
@@ -649,17 +874,17 @@ var fbird = (function() {
       birdSpriteBase = surface.createImageSprite("fbird-spy2.png", 34, 25, globals.params.scale);
       birdSpriteSimd = surface.createImageSprite("fbird2-spy.png", 34, 25, globals.params.scale);
       birdSprite     = birdSpriteBase;
-  
+
       var birdDim = surface.dimOfSprite(birdSpriteBase);
       birds.init(globals.surfaceHeight - birdDim.height);
-  
+
       addBirds(birdSprite, globals.params.initialBirdCount);
-      $("#startStop").click(startStopClick);    
+      $("#startStop").click(startStopClick);
       if (typeof SIMD !== "undefined") {
         $("#useSimd").click(useSimdClick);
       }
     }
-    
+
     function start() {
       if (!animate) {
         animate = true;
@@ -667,29 +892,29 @@ var fbird = (function() {
         moveAll();
       }
     }
-    
+
     function stop() {
       animate = false;
     }
-    
+
     function close() {
       stop();
       removeAllBirds();
     }
-    
+
     return {
-      init:  init,      
+      init:  init,
       start: start,
       stop:  stop,
       close: close
     };
-    
+
   }();
 
   // parse URL parameters
-  
+
   var parameters = function () {
-    
+
     // default parameters
     var parameters = {
       "divId":              "#fbirdDiv",
@@ -713,7 +938,7 @@ var fbird = (function() {
       "useSetTimeout":      "false",
       "accelSteps":         "null"
     };
-    
+
     function parse(options) {
       // copy options
       if (typeof options !== "undefined") {
@@ -733,11 +958,11 @@ var fbird = (function() {
       }
       return parameters;
     }
-    
+
     return {
       parse: parse
     };
-    
+
   }();
 
   function createUi() {
@@ -802,19 +1027,19 @@ var fbird = (function() {
     }
     globals.initialized = false;
   }
-  
+
   function start() {
     if (globals.initialized) {
       animation.start();
     }
   }
-  
+
   function stop() {
     if (globals.initialized) {
       animation.stop();
     }
   }
-  
+
   return {
     init:  init,
     close: close,
