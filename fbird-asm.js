@@ -312,6 +312,8 @@ var fbird = (function() {
       var getMaxPos = imp.getMaxPos;
 
       var i4 = global.SIMD.Int32x4;
+      var b4 = global.SIMD.Bool32x4;
+      var b4anyTrue = b4.anyTrue;
       var f4 = global.SIMD.Float32x4;
       var i4add = i4.add;
       var i4and = i4.and;
@@ -350,7 +352,7 @@ var fbird = (function() {
         var accelx4 = f4(0.0,0.0,0.0,0.0);
         var a = 0;
         var posDeltax4 = f4(0.0,0.0,0.0,0.0);
-        var cmpx4 = i4(0,0,0,0);
+        var cmpx4 = b4(0,0,0,0);
         var newVelTruex4 = f4(0.0,0.0,0.0,0.0);
 
         steps = getAccelDataSteps() | 0;
@@ -383,7 +385,7 @@ var fbird = (function() {
             // newVelx4 = f4select(cmpx4, newVelTruex4, newVelx4);
 
             // Faster alternative moving 'select' out of the hot path:
-            if (cmpx4.signMask) {
+            if (b4anyTrue(cmpx4)) {
               // Work around unimplemented 'neg' operation, using 0 - x.
               newVelTruex4 = f4sub(zerox4, newVelx4);
               newVelx4 = f4select(cmpx4, newVelTruex4, newVelx4);
